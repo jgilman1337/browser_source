@@ -39,14 +39,7 @@ export const SUPPORTED_VIDEO_CODECS = [
 export type VideoCodec = (typeof SUPPORTED_VIDEO_CODECS)[number];
 
 /** Output muxers allowed in config — must match the target protocol/container. */
-export const SUPPORTED_OUTPUT_FORMATS = [
-	"mpegts",
-	"flv",
-	"mp4",
-	"matroska",
-	"mov",
-	"nut",
-] as const;
+export const SUPPORTED_OUTPUT_FORMATS = ["mpegts", "flv", "mp4", "matroska", "mov", "nut"] as const;
 
 export type OutputFormat = (typeof SUPPORTED_OUTPUT_FORMATS)[number];
 
@@ -175,34 +168,42 @@ export function validateFfmpegConfig(ffmpeg: FfmpegConfig): void {
  * WebM VP8/VP9 must be re-encoded; stream copy to MPEG-TS yields audio-only output.
  */
 export function buildFfmpegArgs(config: StreamerConfig): string[] {
+	// Validate the FFmpeg configuration
 	validateFfmpegConfig(config.ffmpeg);
 
+	// Validate the output URL
 	const { ffmpeg, outputUrl, frameRate } = config;
 	if (!outputUrl) {
 		throw new Error("outputUrl is missing — set outputUrl in config.json");
 	}
 
+	// Get the video codec
 	const videoCodec = ffmpeg.videoCodec as VideoCodec;
 	const profile = VIDEO_ENCODER_PROFILES[videoCodec];
 	const args: string[] = [];
 
+	// Add the pre-input arguments
 	if (profile.preInputArgs?.length) {
 		args.push(...profile.preInputArgs);
 	}
 
+	// Add the input pipe and video filter and audio codec
 	args.push("-i", "pipe:0", "-vf", buildVideoFilter(profile, frameRate));
 	args.push("-c:v", videoCodec, ...profile.args);
 	args.push("-c:a", ffmpeg.audioCodec);
 
+	// Add the extra arguments
 	if (ffmpeg.extraArgs?.length) {
 		args.push(...ffmpeg.extraArgs);
 	}
 
+	// Add the format arguments
 	const formatArgs = OUTPUT_FORMAT_ARGS[ffmpeg.format as OutputFormat];
 	if (formatArgs?.length) {
 		args.push(...formatArgs);
 	}
 
+	// Add the output format and output URL
 	args.push("-f", ffmpeg.format, outputUrl);
 	return args;
 }
