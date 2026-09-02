@@ -1,0 +1,21 @@
+{
+	"targetUrl": "https://your-livestream-source.com",
+	"outputUrl": "srt://host.docker.internal:5000?mode=caller",
+	"width": 1920,
+	"height": 1080,
+	"frameRate": 30,
+	"stream": {
+		"audio": true,
+		"video": true
+	},
+	"puppeteer": {
+		"headless": false,
+		"args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+	},
+	"ffmpeg": {
+		"videoCodec": "libx264",
+		"audioCodec": "aac",
+		"format": "mpegts",
+		"extraArgs": []
+	}
+}

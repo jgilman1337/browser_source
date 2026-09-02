@@ -1,0 +1,12 @@
+node_modules
+.git
+.gitignore
+*.md
+config.json
+.vscode
+.eslintrc.cjs
+.eslintignore
+.prettierrc
+.prettierignore
+puppeteer_srt_streamer.code-workspace
+.dockerignore

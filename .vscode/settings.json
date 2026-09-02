@@ -1,0 +1,27 @@
+{
+	"editor.formatOnSave": true,
+	"editor.formatOnSaveMode": "file",
+	"editor.defaultFormatter": "esbenp.prettier-vscode",
+	"editor.codeActionsOnSave": {
+		"source.fixAll.eslint": "always"
+	},
+	"[typescript]": {
+		"editor.formatOnSave": true,
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	"[json]": {
+		"editor.formatOnSave": true,
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	"[jsonc]": {
+		"editor.formatOnSave": true,
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	"prettier.enable": true,
+	"prettier.requireConfig": true,
+	"prettier.configPath": ".prettierrc",
+	"prettier.prettierPath": "node_modules/prettier/index.cjs",
+	"eslint.validate": ["typescript"],
+	"eslint.workingDirectories": [{ "mode": "auto" }],
+	"eslint.format.enable": false
+}
