@@ -15,6 +15,8 @@ Website
   → ffplay / Restreamer / nginx-rtmp / …
 ```
 
+**Not a direct broadcast source.** This produces a simple capture/encode feed (mezzanine) for ingest — push it to something like [Restreamer](https://datarhei.github.io/restreamer/), MediaMTX, or nginx-rtmp that handles bitrates, transcoding, recording, and fan-out to viewers. `ffplay` is for local testing only. Bitrate and quality tuning belong downstream unless you need to cap upload bandwidth (`ffmpeg.extraArgs`).
+
 puppeteer-stream always outputs **WebM (VP8/VP9)**. FFmpeg re-encodes (H.264 via CPU, NVENC, VAAPI, QSV, etc.) for most streaming targets.
 
 ## Prerequisites
