@@ -1,51 +1,36 @@
 /**
  * Configuration loader for the browser capture streamer.
  *
- * Runtime settings live in config.json (see config.example.json). The file path
- * is controlled by CONFIG_PATH so Docker can mount config.json without rebuilding
- * the image.
+ * Only `targetUrl` and `outputUrl` are required in config.json — everything else
+ * uses defaults in config_defaults.ts. See config.example.json.
  */
 import { access, readFile } from "node:fs/promises";
 
+import { DEFAULT_STREAMER_CONFIG, XVFB_COLOR_DEPTH } from "./config_defaults.js";
 import { validateFfmpegConfig } from "./ffmpeg.js";
 
-/** Xvfb bit depth — fixed at 24-bit true color; not exposed in config.json. */
-const XVFB_COLOR_DEPTH = 24;
-
-/** Shape of config.json — keep in sync with config.example.json. */
+/** The core configuration interface for the streamer. */
 export interface StreamerConfig {
-	/** Page to open and capture (must actually play media for a non-black stream). */
 	targetUrl: string;
-	/** FFmpeg output destination — protocol is inferred from the URL (srt://, rtmp://, file path, etc.). */
 	outputUrl: string;
-	/** Capture width in pixels — also drives viewport, Xvfb, and MediaRecorder constraints. */
 	width: number;
-	/** Capture height in pixels — also drives viewport, Xvfb, and MediaRecorder constraints. */
 	height: number;
-	/** Target output frame rate. */
 	frameRate: number;
 	stream: {
 		audio: boolean;
 		video: boolean;
 	};
 	puppeteer: {
-		/** Must stay false — puppeteer-stream needs a rendered surface (Xvfb provides one in Docker). */
 		headless: boolean;
 		args: string[];
 	};
 	ffmpeg: {
-		/** See SUPPORTED_VIDEO_CODECS in ffmpeg.ts — libx264, h264_nvenc, h264_vaapi, h264_qsv, etc. */
 		videoCodec: string;
 		audioCodec: string;
-		/** Output muxer — see SUPPORTED_OUTPUT_FORMATS in ffmpeg.ts (mpegts, flv, mp4, …). */
 		format: string;
-		/** Extra FFmpeg flags before -f (e.g. "-b:v", "4M"). */
 		extraArgs?: string[];
 	};
 }
-
-/** Legacy config field — migrated to outputUrl on load. */
-type RawStreamerConfig = StreamerConfig & { srtUrl?: string };
 
 /** Resolved path to config.json — CONFIG_PATH in Docker, ./config.json locally. */
 export function getConfigPath(): string {
@@ -53,7 +38,7 @@ export function getConfigPath(): string {
 }
 
 /** Resolved output URL — prefers outputUrl, falls back to legacy srtUrl. */
-export function resolveOutputUrl(config: RawStreamerConfig): string {
+export function resolveOutputUrl(config: Partial<StreamerConfig> & { srtUrl?: string }): string {
 	if (config.outputUrl) {
 		return config.outputUrl;
 	}
@@ -61,6 +46,32 @@ export function resolveOutputUrl(config: RawStreamerConfig): string {
 		return config.srtUrl;
 	}
 	throw new Error("config.json must set outputUrl (or legacy srtUrl).");
+}
+
+/** Merge user config over DEFAULT_STREAMER_CONFIG. */
+export function applyConfigDefaults(parsed: Partial<StreamerConfig> & { srtUrl?: string }): StreamerConfig {
+	if (!parsed.targetUrl) {
+		throw new Error("config.json must set targetUrl.");
+	}
+
+	// Apply the defaults
+	const { targetUrl, stream, puppeteer, ffmpeg, width, height, frameRate } = parsed;
+	const config: StreamerConfig = {
+		...DEFAULT_STREAMER_CONFIG,
+		targetUrl,
+		outputUrl: resolveOutputUrl(parsed),
+		...(width !== undefined ? { width } : {}),
+		...(height !== undefined ? { height } : {}),
+		...(frameRate !== undefined ? { frameRate } : {}),
+		stream: { ...DEFAULT_STREAMER_CONFIG.stream, ...stream },
+		puppeteer: { ...DEFAULT_STREAMER_CONFIG.puppeteer, ...puppeteer },
+		ffmpeg: { ...DEFAULT_STREAMER_CONFIG.ffmpeg, ...ffmpeg },
+	};
+
+	// Validate the FFmpeg configuration
+	validateFfmpegConfig(config.ffmpeg);
+
+	return config;
 }
 
 /** Load and parse config.json. Fails fast with a helpful message if the file is missing. */
@@ -74,17 +85,8 @@ export async function loadConfig(): Promise<StreamerConfig> {
 	}
 
 	const raw = await readFile(path, "utf-8");
-	const parsed = JSON.parse(raw) as RawStreamerConfig;
-	const outputUrl = resolveOutputUrl(parsed);
 
-	const config: StreamerConfig = {
-		...parsed,
-		outputUrl,
-	};
-
-	validateFfmpegConfig(config.ffmpeg);
-
-	return config;
+	return applyConfigDefaults(JSON.parse(raw));
 }
 
 /**

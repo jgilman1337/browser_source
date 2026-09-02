@@ -4,28 +4,34 @@
 	"packageManager": "bun@1.4.0",
 	"main": "src/index.ts",
 	"type": "module",
+	"engines": {
+		"bun": ">=1.4.0"
+	},
 	"scripts": {
-		"start": "bun src/index.ts",
-		"lint": "bun x eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-		"lint:fix": "bun x eslint src --ext ts,tsx --fix",
+		"preinstall": "bun -e \"if (!(process.env.npm_config_user_agent || '').includes('bun')) { console.error('This project requires Bun (https://bun.sh). Use: bun install'); process.exit(1); }\"",
+		"lint": "bun x eslint src --report-unused-disable-directives --max-warnings 0",
+		"lint:fix": "bun x eslint src --fix",
 		"format": "bun x prettier --write src/**/*.{html,js,ts,tsx,scss,md,css} --no-error-on-unmatched-pattern",
 		"format:check": "bun x prettier --check src/**/*.{html,js,ts,tsx,scss,md,css} --no-error-on-unmatched-pattern",
 		"typecheck": "bun x tsc --noEmit",
 		"docker:build": "docker build -t puppeteer-srt-streamer .",
-		"docker:run": "npm run docker:build && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" puppeteer-srt-streamer"
+		"docker:run": "bun run docker:build && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" puppeteer-srt-streamer"
 	},
 	"dependencies": {
-		"puppeteer": "^24.16.2",
+		"puppeteer": "^25.9.0",
 		"puppeteer-stream": "^3.0.23"
 	},
 	"devDependencies": {
-		"@types/node": "^22.13.10",
-		"@typescript-eslint/eslint-plugin": "^7.18.0",
-		"@typescript-eslint/parser": "^7.18.0",
-		"eslint": "^8.57.1",
-		"eslint-config-prettier": "^9.1.0",
-		"prettier": "^3.5.3",
-		"bun-types": "^1.2.21",
-		"typescript": "^5.8.2"
+		"@types/node": "^26.4.1",
+		"@typescript-eslint/eslint-plugin": "^8.69.0",
+		"@typescript-eslint/parser": "^8.69.0",
+		"eslint": "^10.9.1",
+		"eslint-config-prettier": "^10.1.8",
+		"prettier": "^3.9.6",
+		"bun-types": "^1.4.0",
+		"typescript": "^6.0.3"
+	},
+	"allowScripts": {
+		"puppeteer": true
 	}
 }

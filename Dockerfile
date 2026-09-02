@@ -51,10 +51,15 @@ WORKDIR /app
 
 # Set the configuration path
 ENV CONFIG_PATH=/app/config.json
+# Shared Chrome cache for bun install postinstall and `puppeteer browsers install`.
+ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
 
 # Install production dependencies only — lint/format/typecheck run on the host.
 COPY package.json bun.lock bunfig.toml tsconfig.json ./
 RUN bun install --frozen-lockfile --production
+
+# Ensure the Chrome binary exists (postinstall can skip download in some environments).
+RUN bun x puppeteer browsers install chrome
 
 # Copy the source code
 COPY src ./src

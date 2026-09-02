@@ -22,7 +22,7 @@ puppeteer-stream always outputs **WebM (VP8/VP9)**. FFmpeg re-encodes (H.264 via
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) (run the streamer only)
-- [Bun](https://bun.sh) + [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) (host tooling: install deps, lint, format, typecheck)
+- [Bun](https://bun.sh) ≥ 1.4 (host tooling: install deps, lint, format, typecheck)
 - [ffplay](https://ffmpeg.org/ffplay.html) (or another listener) for local SRT testing
 - **Optional:** NVIDIA GPU + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) for `h264_nvenc` (`docker:run` passes `--gpus all`)
 
@@ -40,22 +40,16 @@ bun install
 cp config.example.json config.json
 ```
 
-Edit `config.json`. The default `outputUrl` targets an SRT listener on your **host machine**:
+Edit `config.json`. Only two fields are required — everything else uses defaults (720p30, libx264, mpegts, etc.):
 
 ```json
 {
 	"targetUrl": "https://your-livestream-page.com",
-	"outputUrl": "srt://host.docker.internal:5000?mode=caller",
-	"width": 1920,
-	"height": 1080,
-	"frameRate": 30,
-	"ffmpeg": {
-		"videoCodec": "libx264",
-		"audioCodec": "aac",
-		"format": "mpegts"
-	}
+	"outputUrl": "srt://host.docker.internal:5000?mode=caller"
 }
 ```
+
+Optional overrides: `width`, `height`, `frameRate`, `stream`, `ffmpeg`, `puppeteer`. See [Configuration](#configuration).
 
 `config.json` is gitignored. Commit changes to `config.example.json` as a template only.
 
@@ -70,33 +64,33 @@ ffplay -i "srt://0.0.0.0:5000?mode=listener"
 ### 3. Run the streamer
 
 ```bash
-npm run docker:run
+bun run docker:run
 ```
 
 `docker:run` rebuilds the image, then starts the container. It mounts `config.json` at `/app/config.json` (read-only). Logs stream to your terminal — look for `Output: srt://...` at startup. Press `Ctrl+C` to stop; the container is removed automatically (`--rm`).
 
-Use `npm run docker:build` alone when you only want to rebuild without running.
+Use `bun run docker:build` alone when you only want to rebuild without running.
 
 ### Reaching the host from Docker
 
 The container pushes to **`host.docker.internal`**, not `localhost`. Inside the container, `localhost` refers to the container itself.
 
-| Where                                | Address                                       |
-| ------------------------------------ | --------------------------------------------- |
-| ffplay listener (host)               | `srt://0.0.0.0:5000?mode=listener`            |
+| Where                                   | Address                                       |
+| --------------------------------------- | --------------------------------------------- |
+| ffplay listener (host)                  | `srt://0.0.0.0:5000?mode=listener`            |
 | streamer `outputUrl` (container → host) | `srt://host.docker.internal:5000?mode=caller` |
 
-`npm run docker:run` adds `--add-host=host.docker.internal:host-gateway` so this works on Linux. Docker Desktop provides `host.docker.internal` automatically on Mac/Windows.
+`bun run docker:run` adds `--add-host=host.docker.internal:host-gateway` so this works on Linux. Docker Desktop provides `host.docker.internal` automatically on Mac/Windows.
 
 ## Output formats
 
 `outputUrl` + `ffmpeg.format` choose the protocol/container. Common pairings:
 
-| Target | `outputUrl` example | `ffmpeg.format` | Notes |
-| ------ | ------------------- | --------------- | ----- |
-| SRT | `srt://host:5000?mode=caller` | `mpegts` | Local testing with ffplay |
-| RTMP | `rtmp://ingest.example.com/live/key` | `flv` | YouTube/Twitch-style ingest |
-| File | `/tmp/out.mp4` | `mp4` | Debug recording (mount a volume) |
+| Target | `outputUrl` example                  | `ffmpeg.format` | Notes                            |
+| ------ | ------------------------------------ | --------------- | -------------------------------- |
+| SRT    | `srt://host:5000?mode=caller`        | `mpegts`        | Local testing with ffplay        |
+| RTMP   | `rtmp://ingest.example.com/live/key` | `flv`           | YouTube/Twitch-style ingest      |
+| File   | `/tmp/out.mp4`                       | `mp4`           | Debug recording (mount a volume) |
 
 Example **RTMP** config:
 
@@ -124,7 +118,7 @@ Example **NVENC** (GPU encode, lower CPU):
 }
 ```
 
-Run with GPU access via `npm run docker:run` (requires NVIDIA drivers + container toolkit on the host).
+Run with GPU access via `bun run docker:run` (requires NVIDIA drivers + container toolkit on the host).
 
 Legacy configs using `srtUrl` still work — it is migrated to `outputUrl` at load time.
 
@@ -132,34 +126,41 @@ Legacy configs using `srtUrl` still work — it is migrated to `outputUrl` at lo
 
 Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PATH` environment variable (defaults to `/app/config.json` in Docker, `./config.json` locally).
 
-| Field                | Description                     | Default                                       |
-| -------------------- | ------------------------------- | --------------------------------------------- |
-| `targetUrl`          | Website to capture              | `https://your-livestream-source.com`          |
-| `outputUrl`          | FFmpeg output destination       | `srt://host.docker.internal:5000?mode=caller` |
-| `width`              | Capture width (px)              | `1920`                                        |
-| `height`             | Capture height (px)             | `1080`                                        |
-| `frameRate`          | Target frame rate               | `30`                                          |
-| `stream.audio`       | Capture audio                   | `true`                                        |
-| `stream.video`       | Capture video                   | `true`                                        |
-| `ffmpeg.videoCodec`  | See supported encoders below    | `libx264`                                     |
-| `ffmpeg.audioCodec`  | `aac`, `libopus`, `libmp3lame`, `ac3` | `aac`                                 |
-| `ffmpeg.format`      | `mpegts`, `flv`, `mp4`, `matroska`, `mov`, `nut` | `mpegts`                    |
-| `ffmpeg.extraArgs`   | Extra FFmpeg flags before `-f`  | `[]`                                          |
-| `puppeteer.headless` | Must be `false` for capture     | `false`                                       |
-| `puppeteer.args`     | Chromium launch flags           | see `config.example.json`                     |
+**Required:**
+
+| Field       | Description               |
+| ----------- | ------------------------- |
+| `targetUrl` | Website to capture        |
+| `outputUrl` | FFmpeg output destination |
+
+**Optional** (defaults in `src/config_defaults.ts`):
+
+| Field                | Default                                       |
+| -------------------- | --------------------------------------------- |
+| `width`              | `1280`                                        |
+| `height`             | `720`                                         |
+| `frameRate`          | `30`                                          |
+| `stream.audio`       | `true`                                        |
+| `stream.video`       | `true`                                        |
+| `ffmpeg.videoCodec`  | `libx264`                                     |
+| `ffmpeg.audioCodec`  | `aac`                                         |
+| `ffmpeg.format`      | `mpegts`                                      |
+| `ffmpeg.extraArgs`   | `[]`                                          |
+| `puppeteer.headless` | `false`                                       |
+| `puppeteer.args`     | Docker-safe Chromium flags (no-sandbox, etc.) |
 
 Unsupported `videoCodec`, `audioCodec`, or `format` values **fail at startup** with a list of allowed options.
 
 ### Supported video encoders (`ffmpeg.videoCodec`)
 
-| Family | Codecs |
-| ------ | ------ |
-| CPU | `libx264`, `libx265` |
-| NVIDIA NVENC | `h264_nvenc`, `hevc_nvenc` |
+| Family                  | Codecs                                                                                          |
+| ----------------------- | ----------------------------------------------------------------------------------------------- |
+| CPU                     | `libx264`, `libx265`                                                                            |
+| NVIDIA NVENC            | `h264_nvenc`, `hevc_nvenc`                                                                      |
 | VAAPI (Intel/AMD Linux) | `h264_vaapi`, `hevc_vaapi`, `mjpeg_vaapi`, `mpeg2_vaapi`, `vp8_vaapi`, `vp9_vaapi`, `av1_vaapi` |
-| Intel QSV | `h264_qsv`, `hevc_qsv`, `mjpeg_qsv`, `mpeg2_qsv`, `vp9_qsv` |
-| AMD AMF | `h264_amf`, `hevc_amf`, `av1_amf` |
-| V4L2 mem2mem | `h264_v4l2m2m`, `hevc_v4l2m2m`, `h263_v4l2m2m`, `mpeg4_v4l2m2m`, `vp8_v4l2m2m` |
+| Intel QSV               | `h264_qsv`, `hevc_qsv`, `mjpeg_qsv`, `mpeg2_qsv`, `vp9_qsv`                                     |
+| AMD AMF                 | `h264_amf`, `hevc_amf`, `av1_amf`                                                               |
+| V4L2 mem2mem            | `h264_v4l2m2m`, `hevc_v4l2m2m`, `h263_v4l2m2m`, `mpeg4_v4l2m2m`, `vp8_v4l2m2m`                  |
 
 Known encoders get low-latency tuning automatically (e.g. `libx264` → `veryfast`, NVENC → `p1+ull`, VAAPI/QSV → hwupload). Override with `extraArgs` (bitrate, GOP, etc.).
 
@@ -173,26 +174,28 @@ Copy `config.example.json` when setting up a new environment:
 cp config.example.json config.json
 ```
 
-## npm scripts
+## Scripts
+
+All scripts are run with Bun (`bun run <script>`). npm is not supported.
 
 ### Docker (run the streamer only)
 
-| Script                    | Description                                                          |
-| ------------------------- | -------------------------------------------------------------------- |
-| `npm run docker:build`    | Build the `puppeteer-srt-streamer` image only                        |
-| `npm run docker:run`      | Rebuild + run (`--gpus all`, `--device /dev/dri`, mounts `config.json`) |
+| Script                  | Description                                                             |
+| ----------------------- | ----------------------------------------------------------------------- |
+| `bun run docker:build`  | Build the `puppeteer-srt-streamer` image only                           |
+| `bun run docker:run`    | Rebuild + run (`--gpus all`, `--device /dev/dri`, mounts `config.json`) |
 
 The container only receives a read-only `config.json` mount. Source, lint rules, and formatter config are baked into the image at build time and are not modified at runtime.
 
 ### Host tooling (lint / format / typecheck)
 
-| Script                 | Description          |
-| ---------------------- | -------------------- |
-| `npm run lint`         | ESLint               |
-| `npm run lint:fix`     | ESLint with auto-fix |
-| `npm run format`       | Prettier (write)     |
-| `npm run format:check` | Prettier (check)     |
-| `npm run typecheck`    | `tsc --noEmit`       |
+| Script                  | Description          |
+| ----------------------- | -------------------- |
+| `bun run lint`          | ESLint               |
+| `bun run lint:fix`      | ESLint with auto-fix |
+| `bun run format`        | Prettier (write)     |
+| `bun run format:check`  | Prettier (check)     |
+| `bun run typecheck`     | `tsc --noEmit`       |
 
 Requires `bun install` on the host (`node_modules/`).
 
@@ -205,12 +208,12 @@ cp config.example.json config.json
 
 ffplay -i "srt://0.0.0.0:5000?mode=listener"   # separate terminal
 
-npm run docker:run
+bun run docker:run
 
 # before committing (on the host)
-npm run lint
-npm run format:check
-npm run typecheck
+bun run lint
+bun run format:check
+bun run typecheck
 ```
 
 ## Project structure
@@ -220,6 +223,7 @@ puppeteer_srt_streamer/
 ├── src/
 │   ├── index.ts              # Pipeline orchestration + fail-fast shutdown
 │   ├── config.ts             # Config loader + types
+│   ├── config_defaults.ts    # Default values (720p30, ffmpeg, puppeteer)
 │   ├── ffmpeg.ts             # FFmpeg arg builder (codecs, formats)
 │   ├── autoplay.ts           # Chromium autoplay helpers
 │   └── logger.ts             # Timestamped logging
@@ -228,7 +232,7 @@ puppeteer_srt_streamer/
 ├── config.example.json       # Template (committed)
 ├── config.json               # Your config (gitignored, mounted into container)
 ├── Dockerfile
-├── package.json              # npm scripts (primary interface)
+├── package.json              # bun scripts (primary interface)
 ├── bun.lock
 └── bunfig.toml
 ```
@@ -250,10 +254,10 @@ puppeteer_srt_streamer/
 ### ffplay shows nothing
 
 1. **Quote the URL** — bash treats `?` as a glob. Without quotes, `mode=listener` is stripped:
-   ```bash
-   ffplay -i "srt://0.0.0.0:5000?mode=listener"
-   ```
-2. Start ffplay **before** `npm run docker:run`.
+    ```bash
+    ffplay -i "srt://0.0.0.0:5000?mode=listener"
+    ```
+2. Start ffplay **before** `bun run docker:run`.
 3. Confirm `outputUrl` uses `host.docker.internal`, not `localhost`.
 4. `docker:run` rebuilds automatically. Check logs for `Output: srt://...` at startup and that FFmpeg does **not** say `to 'undefined'`.
 5. `no sockets to check, this would deadlock` on Ctrl+C before a caller connects is a harmless libsrt shutdown message.
@@ -277,4 +281,4 @@ Use `libx264` or `h264_nvenc` in `config.json` (default is `libx264`).
 
 ## License
 
-ISC (see `package.json`).
+AGPL v3 (see [LICENSE.txt](LICENSE.txt)).

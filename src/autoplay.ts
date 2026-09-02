@@ -1,4 +1,8 @@
-import type { Page } from "puppeteer";
+/** Structural page type so autoplay works with puppeteer-stream's puppeteer-core 24 Page. */
+type PageLike = {
+	evaluateOnNewDocument(pageFunction: () => void): Promise<unknown>;
+	evaluate(pageFunction: () => void): Promise<unknown>;
+};
 
 /**
  * Chromium flags that disable autoplay gesture requirements and related media blocks.
@@ -13,7 +17,7 @@ export const AUTOPLAY_LAUNCH_ARGS = [
  * Injected before any page script runs. Watches for <video>/<audio> elements and
  * calls play() automatically so embedded players do not wait for a user click.
  */
-export async function enableAutoplayOnPage(page: Page): Promise<void> {
+export async function enableAutoplayOnPage(page: PageLike): Promise<void> {
 	await page.evaluateOnNewDocument(() => {
 		const tryPlay = (element: HTMLMediaElement): void => {
 			// Some players start muted to satisfy stricter policies; unmute for capture.
@@ -67,7 +71,7 @@ export async function enableAutoplayOnPage(page: Page): Promise<void> {
 }
 
 /** Nudge any media elements that were already on the page when navigation finished. */
-export async function kickExistingMedia(page: Page): Promise<void> {
+export async function kickExistingMedia(page: PageLike): Promise<void> {
 	await page.evaluate(() => {
 		// Scan the document for video and audio elements and try to play them
 		document.querySelectorAll("video,audio").forEach((node) => {

@@ -9,7 +9,6 @@
  * Config is read from config.json — see config.example.json.
  */
 import { spawn, ChildProcess } from "child_process";
-import type { Browser, Page } from "puppeteer";
 import puppeteer from "puppeteer";
 import { getStream, launch, wss } from "puppeteer-stream";
 
@@ -17,6 +16,9 @@ import { enableAutoplayOnPage, kickExistingMedia, AUTOPLAY_LAUNCH_ARGS } from ".
 import { loadConfig, type StreamerConfig } from "./config.js";
 import { buildFfmpegArgs } from "./ffmpeg.js";
 import { error, log } from "./logger.js";
+
+/** puppeteer-stream bundles puppeteer-core 24; types must come from `launch()`, not puppeteer 25. */
+type Browser = Awaited<ReturnType<typeof launch>>;
 
 /** Held at module scope so SIGINT/SIGTERM handlers can clean up. */
 let browser: Browser | null = null;
@@ -112,9 +114,11 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 		log("Launching browser...");
 
 		// launch() from puppeteer-stream loads the browser extension required for capture.
-		// executablePath points at Puppeteer's bundled Chromium (installed during bun install).
-		browser = await launch({
-			executablePath: puppeteer.executablePath(),
+		// executablePath() is async in Puppeteer 24+ — must be awaited or launch sees "[object Promise]".
+		const executablePath = await puppeteer.executablePath();
+		log(`Using Chromium at ${executablePath}`);
+		const launched = await launch({
+			executablePath,
 			headless: config.puppeteer.headless,
 			args: [...AUTOPLAY_LAUNCH_ARGS, ...config.puppeteer.args],
 			defaultViewport: {
@@ -122,9 +126,10 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 				height: config.height,
 			},
 		});
+		browser = launched;
 
 		// Create a new page
-		const page: Page = await browser.newPage();
+		const page = await launched.newPage();
 
 		// Allow video/audio autoplay without user clicks (see autoplay.ts).
 		await enableAutoplayOnPage(page);
@@ -148,7 +153,7 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 		const outputTarget = ffmpegArgs.at(-1);
 		if (!outputTarget || outputTarget === "undefined") {
 			throw new Error(
-				`FFmpeg output URL is missing (got "${outputTarget}"). Rebuild the image: npm run docker:build`,
+				`FFmpeg output URL is missing (got "${outputTarget}"). Rebuild the image: bun run docker:build`,
 			);
 		}
 		log(`FFmpeg: ffmpeg ${ffmpegArgs.join(" ")}`);

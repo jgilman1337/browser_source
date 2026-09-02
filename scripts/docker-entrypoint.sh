@@ -14,9 +14,9 @@ if ! pulseaudio --check 2>/dev/null; then
 fi
 
 SCREEN_ARGS=$(bun -e "
-const { readFileSync } = require('node:fs');
-const config = JSON.parse(readFileSync('${CONFIG_PATH}', 'utf8'));
-process.stdout.write(\`\${config.width}x\${config.height}x24\`);
+import { loadConfig, xvfbScreenArgs } from './src/config.ts';
+const config = await loadConfig();
+process.stdout.write(xvfbScreenArgs(config));
 ")
 
 echo "[entrypoint] xvfb screen: ${SCREEN_ARGS}" >&2
