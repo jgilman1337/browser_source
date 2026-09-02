@@ -19,7 +19,8 @@
 	},
 	"dependencies": {
 		"puppeteer": "^25.9.0",
-		"puppeteer-stream": "^3.0.23"
+		"puppeteer-stream": "^3.0.23",
+		"zod": "^4.5.4"
 	},
 	"devDependencies": {
 		"@types/node": "^26.4.1",

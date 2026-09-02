@@ -145,11 +145,17 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 | `ffmpeg.videoCodec`  | `libx264`                                     |
 | `ffmpeg.audioCodec`  | `aac`                                         |
 | `ffmpeg.format`      | `mpegts`                                      |
+| `ffmpeg.hideBanner`  | `true`                                        |
+| `ffmpeg.logLevel`    | `warning`                                     |
+| `ffmpeg.stats`       | `true`                                        |
+| `ffmpeg.statsPeriod` | `5`                                           |
 | `ffmpeg.extraArgs`   | `[]`                                          |
 | `puppeteer.headless` | `false`                                       |
 | `puppeteer.args`     | Docker-safe Chromium flags (no-sandbox, etc.) |
 
-Unsupported `videoCodec`, `audioCodec`, or `format` values **fail at startup** with a list of allowed options.
+Unsupported `videoCodec`, `audioCodec`, `format`, or `logLevel` values **fail at startup** with a list of allowed options.
+
+FFmpeg logging is quiet by default: the copyright banner is hidden (`-hide_banner`), encoding progress prints every 5 seconds (`-stats_period 5` instead of FFmpeg's 0.5s), and `-loglevel` is `warning`. Set `stats` to `false` to disable progress entirely. `logLevel` accepts FFmpeg's named levels: `quiet`, `panic`, `fatal`, `error`, `warning`, `info`, `verbose`, `debug`, `trace`.
 
 ### Supported video encoders (`ffmpeg.videoCodec`)
 

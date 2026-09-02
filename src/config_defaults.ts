@@ -21,6 +21,10 @@ export const DEFAULT_FFMPEG = {
 	audioCodec: "aac",
 	format: "mpegts",
 	extraArgs: [] as string[],
+	hideBanner: true,
+	logLevel: "warning",
+	stats: true,
+	statsPeriod: 5,
 };
 
 /** puppeteer-stream requires a rendered surface — never default to headless. */

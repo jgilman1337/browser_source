@@ -7,7 +7,7 @@
 import { access, readFile } from "node:fs/promises";
 
 import { DEFAULT_STREAMER_CONFIG, XVFB_COLOR_DEPTH } from "./config_defaults.js";
-import { validateFfmpegConfig } from "./ffmpeg.js";
+import { parseFfmpegConfig, type FFmpegConfig } from "./ffmpeg.js";
 
 /** The core configuration interface for the streamer. */
 export interface StreamerConfig {
@@ -24,12 +24,7 @@ export interface StreamerConfig {
 		headless: boolean;
 		args: string[];
 	};
-	ffmpeg: {
-		videoCodec: string;
-		audioCodec: string;
-		format: string;
-		extraArgs?: string[];
-	};
+	ffmpeg: FFmpegConfig;
 }
 
 /** Resolved path to config.json — CONFIG_PATH in Docker, ./config.json locally. */
@@ -65,11 +60,8 @@ export function applyConfigDefaults(parsed: Partial<StreamerConfig> & { srtUrl?:
 		...(frameRate !== undefined ? { frameRate } : {}),
 		stream: { ...DEFAULT_STREAMER_CONFIG.stream, ...stream },
 		puppeteer: { ...DEFAULT_STREAMER_CONFIG.puppeteer, ...puppeteer },
-		ffmpeg: { ...DEFAULT_STREAMER_CONFIG.ffmpeg, ...ffmpeg },
+		ffmpeg: parseFfmpegConfig({ ...DEFAULT_STREAMER_CONFIG.ffmpeg, ...ffmpeg }),
 	};
-
-	// Validate the FFmpeg configuration
-	validateFfmpegConfig(config.ffmpeg);
 
 	return config;
 }

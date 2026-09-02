@@ -16,6 +16,10 @@
 		"videoCodec": "libx264",
 		"audioCodec": "aac",
 		"format": "mpegts",
+		"hideBanner": true,
+		"logLevel": "warning",
+		"stats": true,
+		"statsPeriod": 5,
 		"extraArgs": []
 	}
 }

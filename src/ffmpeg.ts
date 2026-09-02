@@ -1,6 +1,6 @@
-import type { StreamerConfig } from "./config.js";
+import { z } from "zod";
 
-export type FfmpegConfig = StreamerConfig["ffmpeg"];
+import type { StreamerConfig } from "./config.js";
 
 /** FFmpeg video encoders supported by this app (validated at config load). */
 export const SUPPORTED_VIDEO_CODECS = [
@@ -38,6 +38,12 @@ export const SUPPORTED_VIDEO_CODECS = [
 
 export type VideoCodec = (typeof SUPPORTED_VIDEO_CODECS)[number];
 
+function supportedEnum<const T extends readonly string[]>(values: T, field: string) {
+	return z.enum(values, {
+		error: (issue) => `Unsupported ${field}: ${JSON.stringify(issue.input)}. Supported: ${values.join(", ")}`,
+	});
+}
+
 /** Output muxers allowed in config — must match the target protocol/container. */
 export const SUPPORTED_OUTPUT_FORMATS = ["mpegts", "flv", "mp4", "matroska", "mov", "nut"] as const;
 
@@ -47,6 +53,44 @@ export type OutputFormat = (typeof SUPPORTED_OUTPUT_FORMATS)[number];
 export const SUPPORTED_AUDIO_CODECS = ["aac", "libopus", "libmp3lame", "ac3"] as const;
 
 export type AudioCodec = (typeof SUPPORTED_AUDIO_CODECS)[number];
+
+/** FFmpeg `-loglevel` names allowed in config. */
+export const SUPPORTED_LOG_LEVELS = [
+	"quiet",
+	"panic",
+	"fatal",
+	"error",
+	"warning",
+	"info",
+	"verbose",
+	"debug",
+	"trace",
+] as const;
+
+export type LogLevel = (typeof SUPPORTED_LOG_LEVELS)[number];
+
+/** FFmpeg block in config.json — codecs, muxer, logging. */
+export const ffmpegSchema = z.object({
+	videoCodec: supportedEnum(SUPPORTED_VIDEO_CODECS, "ffmpeg.videoCodec"),
+	audioCodec: supportedEnum(SUPPORTED_AUDIO_CODECS, "ffmpeg.audioCodec"),
+	format: supportedEnum(SUPPORTED_OUTPUT_FORMATS, "ffmpeg.format"),
+	extraArgs: z.array(z.string()).default([]),
+	hideBanner: z.boolean(),
+	logLevel: supportedEnum(SUPPORTED_LOG_LEVELS, "ffmpeg.logLevel"),
+	stats: z.boolean(),
+	statsPeriod: z.number().positive("must be a positive number of seconds"),
+});
+
+export type FFmpegConfig = z.infer<typeof ffmpegSchema>;
+
+/** Fail fast when config references an unsupported FFmpeg codec, muxer, or log option. */
+export function parseFfmpegConfig(value: unknown): FFmpegConfig {
+	const result = ffmpegSchema.safeParse(value);
+	if (!result.success) {
+		throw new Error(`Invalid ffmpeg config:\n${z.prettifyError(result.error)}`);
+	}
+	return result.data;
+}
 
 type EncoderProfile = {
 	/** Flags placed before `-i` (hw device init, VAAPI device path, etc.). */
@@ -126,51 +170,11 @@ const VIDEO_ENCODER_PROFILES: Record<VideoCodec, EncoderProfile> = {
 	vp8_v4l2m2m: V4L2_PROFILE,
 };
 
-function isVideoCodec(value: string): value is VideoCodec {
-	return (SUPPORTED_VIDEO_CODECS as readonly string[]).includes(value);
-}
-
-function isOutputFormat(value: string): value is OutputFormat {
-	return (SUPPORTED_OUTPUT_FORMATS as readonly string[]).includes(value);
-}
-
-function isAudioCodec(value: string): value is AudioCodec {
-	return (SUPPORTED_AUDIO_CODECS as readonly string[]).includes(value);
-}
-
-function formatAllowedList(values: readonly string[]): string {
-	return values.join(", ");
-}
-
-/** Fail fast when config references an unsupported FFmpeg codec or muxer. */
-export function validateFfmpegConfig(ffmpeg: FfmpegConfig): void {
-	if (!isVideoCodec(ffmpeg.videoCodec)) {
-		throw new Error(
-			`Unsupported ffmpeg.videoCodec: "${ffmpeg.videoCodec}". Supported: ${formatAllowedList(SUPPORTED_VIDEO_CODECS)}`,
-		);
-	}
-
-	if (!isAudioCodec(ffmpeg.audioCodec)) {
-		throw new Error(
-			`Unsupported ffmpeg.audioCodec: "${ffmpeg.audioCodec}". Supported: ${formatAllowedList(SUPPORTED_AUDIO_CODECS)}`,
-		);
-	}
-
-	if (!isOutputFormat(ffmpeg.format)) {
-		throw new Error(
-			`Unsupported ffmpeg.format: "${ffmpeg.format}". Supported: ${formatAllowedList(SUPPORTED_OUTPUT_FORMATS)}`,
-		);
-	}
-}
-
 /**
  * Build FFmpeg CLI args for WebM stdin → encoded output (SRT, RTMP, file, etc.).
  * WebM VP8/VP9 must be re-encoded; stream copy to MPEG-TS yields audio-only output.
  */
 export function buildFfmpegArgs(config: StreamerConfig): string[] {
-	// Validate the FFmpeg configuration
-	validateFfmpegConfig(config.ffmpeg);
-
 	// Validate the output URL
 	const { ffmpeg, outputUrl, frameRate } = config;
 	if (!outputUrl) {
@@ -178,9 +182,20 @@ export function buildFfmpegArgs(config: StreamerConfig): string[] {
 	}
 
 	// Get the video codec
-	const videoCodec = ffmpeg.videoCodec as VideoCodec;
+	const videoCodec = ffmpeg.videoCodec;
 	const profile = VIDEO_ENCODER_PROFILES[videoCodec];
 	const args: string[] = [];
+
+	// Global logging flags first so they apply to hw-device init too.
+	if (ffmpeg.hideBanner) {
+		args.push("-hide_banner");
+	}
+	args.push("-loglevel", ffmpeg.logLevel);
+	if (ffmpeg.stats) {
+		args.push("-stats", "-stats_period", String(ffmpeg.statsPeriod));
+	} else {
+		args.push("-nostats");
+	}
 
 	// Add the pre-input arguments
 	if (profile.preInputArgs?.length) {
@@ -193,12 +208,12 @@ export function buildFfmpegArgs(config: StreamerConfig): string[] {
 	args.push("-c:a", ffmpeg.audioCodec);
 
 	// Add the extra arguments
-	if (ffmpeg.extraArgs?.length) {
+	if (ffmpeg.extraArgs.length) {
 		args.push(...ffmpeg.extraArgs);
 	}
 
 	// Add the format arguments
-	const formatArgs = OUTPUT_FORMAT_ARGS[ffmpeg.format as OutputFormat];
+	const formatArgs = OUTPUT_FORMAT_ARGS[ffmpeg.format];
 	if (formatArgs?.length) {
 		args.push(...formatArgs);
 	}
