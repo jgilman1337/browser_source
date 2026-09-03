@@ -307,6 +307,8 @@ Chromium → Xvfb (RAM framebuffer)          ← render surface only
 
 If Chromium ever drops X11 in containers, the likely migration is Weston headless + `--ozone-platform=wayland` — swap the entrypoint, keep the puppeteer-stream → FFmpeg pipeline. Chromium still maintains an Ozone/X11 backend today and falls back to X11 when no Wayland server is present.
 
+**Packaged alternative:** [xwfb-run](https://manpages.debian.org/unstable/xwayland-run/xwfb-run.1.en.html) (`xwayland-run` package) is a drop-in replacement for `xvfb-run` — it starts a headless Wayland compositor (Weston by default) plus rootful Xwayland. Same role as our `xvfb-run` wrapper in `scripts/docker-entrypoint.sh`, but heavier (compositor + Xwayland + X11 instead of Xvfb alone). Useful if Xvfb disappears from Debian or you need to test Chromium on Wayland in CI; not worth switching to for a smaller image or lower overhead today.
+
 ## License
 
 AGPL v3 (see [LICENSE.txt](LICENSE.txt)).
