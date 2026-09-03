@@ -101,8 +101,8 @@ type EncoderProfile = {
 	args: string[];
 };
 
-const NVENC_LOW_LATENCY: EncoderProfile = {
-	args: ["-preset", "p1", "-tune", "ull", "-zerolatency", "1"],
+const NVENC_PROFILE: EncoderProfile = {
+	args: ["-preset", "p4", "-tune", "hq", "-spatial_aq", "1", "-temporal_aq", "1"],
 };
 
 const QSV_HW: Omit<EncoderProfile, "args"> = {
@@ -135,19 +135,20 @@ const OUTPUT_FORMAT_ARGS: Partial<Record<OutputFormat, string[]>> = {
 };
 
 function buildVideoFilter(profile: EncoderProfile, frameRate: number): string {
+	const base = `fps=${frameRate},format=yuv420p,gradfun=strength=1.2:radius=12`;
 	if (profile.videoFilter) {
-		return `fps=${frameRate},${profile.videoFilter}`;
+		return `${base},${profile.videoFilter}`;
 	}
-	// Tab capture VP8 often has alpha + irregular fps — normalize before encode.
-	return `fps=${frameRate},format=yuv420p`;
+	// Tab capture VP8/VP9 often has alpha + irregular fps — normalize before encode.
+	return base;
 }
 
 /** Low-latency tuning per video encoder — unknown codecs are rejected at validation. */
 const VIDEO_ENCODER_PROFILES: Record<VideoCodec, EncoderProfile> = {
 	libx264: { args: ["-preset", "veryfast", "-tune", "zerolatency"] },
 	libx265: { args: ["-preset", "veryfast", "-tune", "zerolatency"] },
-	h264_nvenc: NVENC_LOW_LATENCY,
-	hevc_nvenc: NVENC_LOW_LATENCY,
+	h264_nvenc: NVENC_PROFILE,
+	hevc_nvenc: NVENC_PROFILE,
 	h264_vaapi: vaapiProfile(),
 	hevc_vaapi: vaapiProfile(),
 	mjpeg_vaapi: vaapiProfile(),
@@ -202,15 +203,13 @@ export function buildFfmpegArgs(config: StreamerConfig): string[] {
 		args.push(...profile.preInputArgs);
 	}
 
-	// Add the input pipe and video filter and audio codec
+	// Video encoder + overrides, then audio — keeps `-b:v`/`-rc` on the video encoder.
 	args.push("-i", "pipe:0", "-vf", buildVideoFilter(profile, frameRate));
 	args.push("-c:v", videoCodec, ...profile.args);
-	args.push("-c:a", ffmpeg.audioCodec);
-
-	// Add the extra arguments
 	if (ffmpeg.extraArgs.length) {
 		args.push(...ffmpeg.extraArgs);
 	}
+	args.push("-c:a", ffmpeg.audioCodec);
 
 	// Add the format arguments
 	const formatArgs = OUTPUT_FORMAT_ARGS[ffmpeg.format];

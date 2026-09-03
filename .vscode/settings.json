@@ -22,6 +22,10 @@
 	"prettier.configPath": ".prettierrc",
 	"prettier.prettierPath": "node_modules/prettier/index.cjs",
 	"eslint.validate": ["typescript"],
+	"eslint.useFlatConfig": true,
 	"eslint.workingDirectories": [{ "mode": "auto" }],
-	"eslint.format.enable": false
+	"eslint.format.enable": false,
+	"typescript.tsserver.watchOptions": {
+		"excludeDirectories": ["**/node_modules", "**/dist"]
+	}
 }

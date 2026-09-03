@@ -9,10 +9,19 @@
  * in config_defaults.ts. See config.example.json and README.md.
  */
 import { access, readFile } from "node:fs/promises";
+import type { BrowserMimeType } from "puppeteer-stream";
 import { z } from "zod";
 
 import { DEFAULT_STREAMER_CONFIG, NAVIGATION_WAIT_UNTIL, XVFB_COLOR_DEPTH } from "./config_defaults.js";
 import { ffmpegSchema, parseFfmpegConfig, supportedEnum } from "./ffmpeg.js";
+
+/** Zod schema for puppeteer-stream `BrowserMimeType` (compile-time union, runtime string). */
+function browserMimeTypeSchema(field: string) {
+	return z.custom<BrowserMimeType>(
+		(value): value is BrowserMimeType => typeof value === "string" && value.length > 0,
+		{ error: `${field} must be a puppeteer-stream BrowserMimeType string` },
+	);
+}
 
 /** `navigation` block — Puppeteer page.goto / setContent waitUntil and timeout. */
 export const navigationSchema = z.object({
@@ -30,6 +39,9 @@ export type NavigationWaitUntil = NavigationConfig["waitUntil"];
 const streamSchema = z.object({
 	audio: z.boolean(),
 	video: z.boolean(),
+	videoBitsPerSecond: z.number().positive(),
+	audioBitsPerSecond: z.number().positive(),
+	mimeType: browserMimeTypeSchema("stream.mimeType"),
 });
 
 /** `puppeteer` block — Chromium launch options (headless is almost always false for capture). */

@@ -113,7 +113,7 @@ Example **NVENC** (GPU encode, lower CPU):
 		"videoCodec": "h264_nvenc",
 		"audioCodec": "aac",
 		"format": "mpegts",
-		"extraArgs": ["-b:v", "4M"]
+		"extraArgs": ["-rc", "cbr", "-b:v", "4M"]
 	}
 }
 ```
@@ -135,28 +135,31 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 
 **Optional** (defaults in `src/config_defaults.ts`):
 
-| Field                  | Default                                                                                       |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| `width`                | `1280`                                                                                        |
-| `height`               | `720`                                                                                         |
-| `frameRate`            | `30`                                                                                          |
-| `clickPlayTarget`      | _(unset)_ — CSS selector for a play/start button to click after load                          |
-| `hideScrollbars`       | `false` — hide horizontal and vertical scrollbars in the capture                              |
-| `embedAsMedia`         | _(unset)_ — `"audio"` or `"video"` to load a direct stream URL in a media element             |
-| `navigation.timeoutMs` | `60000` — max wait for page load and selector waits (`0` = no timeout)                        |
-| `navigation.waitUntil` | `load` — Puppeteer lifecycle to wait for (`domcontentloaded`, `networkidle0`, `networkidle2`) |
-| `stream.audio`         | `true`                                                                                        |
-| `stream.video`         | `true`                                                                                        |
-| `ffmpeg.videoCodec`    | `libx264`                                                                                     |
-| `ffmpeg.audioCodec`    | `aac`                                                                                         |
-| `ffmpeg.format`        | `mpegts`                                                                                      |
-| `ffmpeg.hideBanner`    | `true`                                                                                        |
-| `ffmpeg.logLevel`      | `warning`                                                                                     |
-| `ffmpeg.stats`         | `true`                                                                                        |
-| `ffmpeg.statsPeriod`   | `5`                                                                                           |
-| `ffmpeg.extraArgs`     | `[]`                                                                                          |
-| `puppeteer.headless`   | `false`                                                                                       |
-| `puppeteer.args`       | Docker-safe + GPU Chromium flags (no-sandbox, ANGLE/Vulkan, VAAPI decode)                     |
+| Field                       | Default                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------- |
+| `width`                     | `1280`                                                                                            |
+| `height`                    | `720`                                                                                             |
+| `frameRate`                 | `30`                                                                                              |
+| `clickPlayTarget`           | _(unset)_ — CSS selector for a play/start button to click after load                              |
+| `hideScrollbars`            | `false` — hide horizontal and vertical scrollbars in the capture                                  |
+| `embedAsMedia`              | _(unset)_ — `"audio"` or `"video"` to load a direct stream URL in a media element                 |
+| `navigation.timeoutMs`      | `60000` — max wait for page load and selector waits (`0` = no timeout)                            |
+| `navigation.waitUntil`      | `load` — Puppeteer lifecycle to wait for (`domcontentloaded`, `networkidle0`, `networkidle2`)     |
+| `stream.audio`              | `true`                                                                                            |
+| `stream.video`              | `true`                                                                                            |
+| `stream.videoBitsPerSecond` | `8000000` (8 Mbps) — MediaRecorder capture bitrate; Chrome defaults ~2.5 Mbps and cause artifacts |
+| `stream.audioBitsPerSecond` | `192000` (192 kbps) — MediaRecorder tab-audio capture bitrate                                     |
+| `stream.mimeType`           | `video/webm;codecs=vp9` — VP9 for gradients; use `video/webm;codecs=vp8` if capture fails         |
+| `ffmpeg.videoCodec`         | `libx264`                                                                                         |
+| `ffmpeg.audioCodec`         | `aac`                                                                                             |
+| `ffmpeg.format`             | `mpegts`                                                                                          |
+| `ffmpeg.hideBanner`         | `true`                                                                                            |
+| `ffmpeg.logLevel`           | `warning`                                                                                         |
+| `ffmpeg.stats`              | `true`                                                                                            |
+| `ffmpeg.statsPeriod`        | `5`                                                                                               |
+| `ffmpeg.extraArgs`          | `[]`                                                                                              |
+| `puppeteer.headless`        | `false`                                                                                           |
+| `puppeteer.args`            | Docker-safe + GPU Chromium flags (no-sandbox, ANGLE/Vulkan, VAAPI decode)                         |
 
 Unsupported `videoCodec`, `audioCodec`, `format`, or `logLevel` values **fail at startup** with a list of allowed options.
 
@@ -235,7 +238,7 @@ FFmpeg logging is quiet by default: the copyright banner is hidden (`-hide_banne
 | AMD AMF                 | `h264_amf`, `hevc_amf`, `av1_amf`                                                               |
 | V4L2 mem2mem            | `h264_v4l2m2m`, `hevc_v4l2m2m`, `h263_v4l2m2m`, `mpeg4_v4l2m2m`, `vp8_v4l2m2m`                  |
 
-Known encoders get low-latency tuning automatically (e.g. `libx264` → `veryfast`, NVENC → `p1+ull`, VAAPI/QSV → hwupload). Override with `extraArgs` (bitrate, GOP, etc.).
+Known encoders get tuning automatically (e.g. `libx264` → `veryfast`, NVENC → `p4+hq` + AQ, VAAPI/QSV → hwupload). Video filters include `gradfun` to reduce gradient banding. For NVENC, add `-rc cbr` in `extraArgs` when you need a fixed output bitrate (`-b:v` alone is ignored). For lowest latency, override with `-preset p1 -tune ull -zerolatency 1` in `extraArgs`.
 
 VAAPI device path defaults to `/dev/dri/renderD128`; override with `VAAPI_DEVICE` env var. `docker:run` passes `--gpus all` and `--device /dev/dri` for NVIDIA + Intel/AMD encode.
 
@@ -334,6 +337,17 @@ puppeteer_srt_streamer/
 3. Confirm `outputUrl` uses `host.docker.internal`, not `localhost`.
 4. `docker:run` rebuilds automatically. Check logs for `Output: srt://...` at startup and that FFmpeg does **not** say `to 'undefined'`.
 5. `no sockets to check, this would deadlock` on Ctrl+C before a caller connects is a harmless libsrt shutdown message.
+
+### Blocky video / compression artifacts
+
+Two separate bitrates apply:
+
+1. **Capture** (`stream.videoBitsPerSecond`, `stream.audioBitsPerSecond`, `stream.mimeType`) — VP9/Opus WebM from puppeteer-stream. Default video is **8 Mbps** VP9; try `12000000`–`16000000` for sharp edges and gradients. If capture fails to start, set `mimeType` to `video/webm;codecs=vp8`.
+2. **Encode** (`ffmpeg.extraArgs`) — H.264/NVENC output. NVENC defaults to `p4` + `hq` (not `p1` ultra-low-latency). Add `-rc cbr` with `-b:v` for fixed bitrate. Do **not** use libx264 `-preset medium` with `h264_nvenc` (NVENC uses `p1`–`p7`).
+
+Smooth CSS gradients can still show mild **8-bit banding** in `yuv420p` — that is a format limit, not always fixable with bitrate alone.
+
+Check FFmpeg stats in the container log — if `bitrate=` stays around 2000 kbits/s despite `-b:v 16M`, capture bitrate and/or `-rc` are the problem.
 
 ### ffplay shows audio but no video
 

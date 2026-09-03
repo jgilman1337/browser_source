@@ -5,11 +5,11 @@ import eslintConfigPrettier from "eslint-config-prettier";
 
 export default [
 	{
-		ignores: ["node_modules/**", "dist/**"],
+		ignores: ["**/node_modules/**", "**/dist/**", "bun.lock"],
 	},
 	js.configs.recommended,
 	{
-		files: ["**/*.ts", "**/*.tsx"],
+		files: ["src/**/*.ts", "src/**/*.tsx"],
 		languageOptions: {
 			parser: tsParser,
 			ecmaVersion: "latest",

@@ -174,6 +174,9 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 			audio: config.stream.audio,
 			video: config.stream.video,
 			frameSize: Math.round(1000 / config.frameRate),
+			videoBitsPerSecond: config.stream.videoBitsPerSecond,
+			...(config.stream.video ? { mimeType: config.stream.mimeType } : {}),
+			...(config.stream.audio ? { audioBitsPerSecond: config.stream.audioBitsPerSecond } : {}),
 		});
 
 		log("Browser capture initialized. Connecting to FFmpeg...");
@@ -231,5 +234,11 @@ process.on("SIGTERM", () => {
 // Load the configuration and start the streaming process on startup
 log(`Loading config from ${process.env.CONFIG_PATH ?? `${process.cwd()}/config.json`}...`);
 const config = await loadConfig();
-log(`Output: ${config.outputUrl} | video: ${config.ffmpeg.videoCodec} | format: ${config.ffmpeg.format}`);
+const captureRates = [
+	`${config.stream.videoBitsPerSecond / 1_000_000} Mbps video`,
+	...(config.stream.audio ? [`${config.stream.audioBitsPerSecond / 1000} kbps audio`] : []),
+].join(", ");
+log(
+	`Output: ${config.outputUrl} | video: ${config.ffmpeg.videoCodec} | format: ${config.ffmpeg.format} | capture: ${captureRates}`,
+);
 await startStreaming(config);

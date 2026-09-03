@@ -1,3 +1,5 @@
+import type { BrowserMimeType } from "puppeteer-stream";
+
 /** Xvfb bit depth — fixed at 24-bit true color; not exposed in config.json. */
 export const XVFB_COLOR_DEPTH = 24;
 
@@ -10,6 +12,12 @@ export const DEFAULT_FRAME_RATE = 30;
 export const DEFAULT_STREAM = {
 	audio: true,
 	video: true,
+	/** MediaRecorder VP8/VP9 capture bitrate — low defaults (~2.5 Mbps) cause visible artifacts before FFmpeg. */
+	videoBitsPerSecond: 8_000_000,
+	/** MediaRecorder Opus/Vorbis capture bitrate for tab audio. */
+	audioBitsPerSecond: 192_000,
+	/** VP9 compresses gradients better than VP8; fall back to `video/webm;codecs=vp8` if capture fails. */
+	mimeType: "video/webm;codecs=vp9" satisfies BrowserMimeType,
 } as const;
 
 /** Docker-safe Chromium flags — baked in unless overridden. */

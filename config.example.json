@@ -12,7 +12,10 @@
 	},
 	"stream": {
 		"audio": true,
-		"video": true
+		"video": true,
+		"videoBitsPerSecond": 12000000,
+		"audioBitsPerSecond": 192000,
+		"mimeType": "video/webm;codecs=vp9"
 	},
 	"puppeteer": {
 		"headless": false,
@@ -36,6 +39,6 @@
 		"logLevel": "warning",
 		"stats": true,
 		"statsPeriod": 5,
-		"extraArgs": ["-b:v", "4M", "-maxrate", "4M", "-bufsize", "8M", "-b:a", "192k"]
+		"extraArgs": ["-rc", "cbr", "-b:v", "4M", "-maxrate", "4M", "-bufsize", "8M", "-b:a", "192k"]
 	}
 }
