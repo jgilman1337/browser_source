@@ -8,7 +8,7 @@ echo "[entrypoint] config: ${CONFIG_PATH}" >&2
 # Chromium tab-audio capture needs an output device. Docker has no sound card — use a null sink.
 if ! pulseaudio --check 2>/dev/null; then
 	echo "[entrypoint] starting PulseAudio null sink" >&2
-	pulseaudio --system -D --exit-idle-time=-1 --disallow-exit \
+	pulseaudio -D --exit-idle-time=-1 --disallow-exit \
 		--load="module-null-sink sink_name=capture"
 	sleep 1
 fi

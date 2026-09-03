@@ -12,7 +12,13 @@ import { spawn, ChildProcess } from "child_process";
 import puppeteer from "puppeteer";
 import { getStream, launch, wss } from "puppeteer-stream";
 
-import { enableAutoplayOnPage, kickExistingMedia, AUTOPLAY_LAUNCH_ARGS } from "./autoplay.js";
+import {
+	enableAutoplayOnPage,
+	clickPlayTarget,
+	hideScrollbarsOnPage,
+	kickExistingMedia,
+	AUTOPLAY_LAUNCH_ARGS,
+} from "./autoplay.js";
 import { loadConfig, type StreamerConfig } from "./config.js";
 import { buildFfmpegArgs } from "./ffmpeg.js";
 import { error, log } from "./logger.js";
@@ -134,8 +140,21 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 		// Allow video/audio autoplay without user clicks (see autoplay.ts).
 		await enableAutoplayOnPage(page);
 
+		if (config.hideScrollbars) {
+			await hideScrollbarsOnPage(page);
+		}
+
+		// Navigate to the target URL
 		log(`Navigating to ${config.targetUrl}...`);
 		await page.goto(config.targetUrl, { waitUntil: "networkidle2" });
+
+		// If a click play target is configured, click it
+		if (config.clickPlayTarget) {
+			log(`Clicking play target ${config.clickPlayTarget}...`);
+			await clickPlayTarget(page, config.clickPlayTarget);
+		}
+
+		// Kick any existing media that was already on the page when navigation finished
 		await kickExistingMedia(page);
 
 		// getStream() returns a Node readable stream of WebM chunks from the page.

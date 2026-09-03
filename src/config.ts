@@ -13,6 +13,10 @@ import { parseFfmpegConfig, type FFmpegConfig } from "./ffmpeg.js";
 export interface StreamerConfig {
 	targetUrl: string;
 	outputUrl: string;
+	/** CSS selector for a play/start button to click after navigation (optional). */
+	clickPlayTarget?: string;
+	/** Hide horizontal and vertical scrollbars in the captured page. */
+	hideScrollbars: boolean;
 	width: number;
 	height: number;
 	frameRate: number;
@@ -50,11 +54,13 @@ export function applyConfigDefaults(parsed: Partial<StreamerConfig> & { srtUrl?:
 	}
 
 	// Apply the defaults
-	const { targetUrl, stream, puppeteer, ffmpeg, width, height, frameRate } = parsed;
+	const { targetUrl, stream, puppeteer, ffmpeg, width, height, frameRate, clickPlayTarget, hideScrollbars } = parsed;
 	const config: StreamerConfig = {
 		...DEFAULT_STREAMER_CONFIG,
 		targetUrl,
 		outputUrl: resolveOutputUrl(parsed),
+		...(clickPlayTarget !== undefined ? { clickPlayTarget } : {}),
+		...(hideScrollbars !== undefined ? { hideScrollbars } : {}),
 		...(width !== undefined ? { width } : {}),
 		...(height !== undefined ? { height } : {}),
 		...(frameRate !== undefined ? { frameRate } : {}),

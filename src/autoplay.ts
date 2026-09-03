@@ -4,6 +4,11 @@ type PageLike = {
 	evaluate(pageFunction: () => void): Promise<unknown>;
 };
 
+type PageWithClick = PageLike & {
+	waitForSelector(selector: string, options?: { visible?: boolean }): Promise<unknown>;
+	click(selector: string): Promise<void>;
+};
+
 /**
  * Chromium flags that disable autoplay gesture requirements and related media blocks.
  * Always merged into launch args — not optional for this use case.
@@ -66,6 +71,41 @@ export async function enableAutoplayOnPage(page: PageLike): Promise<void> {
 					observe(document.documentElement);
 				}
 			});
+		}
+	});
+}
+
+/** Click a play/start control when the site requires a user gesture before media starts. */
+export async function clickPlayTarget(page: PageWithClick, selector: string): Promise<void> {
+	await page.waitForSelector(selector, { visible: true });
+	await page.click(selector);
+}
+
+/** Inject CSS before page scripts run to hide horizontal and vertical scrollbars. */
+export async function hideScrollbarsOnPage(page: PageLike): Promise<void> {
+	await page.evaluateOnNewDocument(() => {
+		// Inject CSS to hide horizontal and vertical scrollbars
+		const inject = (): void => {
+			const style = document.createElement("style");
+			style.textContent = `
+				* {
+					scrollbar-width: none !important;
+					-ms-overflow-style: none !important;
+				}
+				*::-webkit-scrollbar {
+					display: none !important;
+					width: 0 !important;
+					height: 0 !important;
+				}
+			`;
+			(document.head ?? document.documentElement).appendChild(style);
+		};
+
+		// If the head element is available, inject the CSS
+		if (document.head) {
+			inject();
+		} else {
+			document.addEventListener("DOMContentLoaded", inject, { once: true });
 		}
 	});
 }

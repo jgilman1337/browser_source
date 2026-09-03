@@ -49,7 +49,7 @@ Edit `config.json`. Only two fields are required — everything else uses defaul
 }
 ```
 
-Optional overrides: `width`, `height`, `frameRate`, `stream`, `ffmpeg`, `puppeteer`. See [Configuration](#configuration).
+Optional overrides: `width`, `height`, `frameRate`, `clickPlayTarget`, `hideScrollbars`, `stream`, `ffmpeg`, `puppeteer`. See [Configuration](#configuration).
 
 `config.json` is gitignored. Commit changes to `config.example.json` as a template only.
 
@@ -140,6 +140,8 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 | `width`              | `1280`                                        |
 | `height`             | `720`                                         |
 | `frameRate`          | `30`                                          |
+| `clickPlayTarget`    | _(unset)_ — CSS selector for a play/start button to click after load |
+| `hideScrollbars`     | `false` — hide horizontal and vertical scrollbars in the capture   |
 | `stream.audio`       | `true`                                        |
 | `stream.video`       | `true`                                        |
 | `ffmpeg.videoCodec`  | `libx264`                                     |
@@ -154,6 +156,30 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 | `puppeteer.args`     | Docker-safe Chromium flags (no-sandbox, etc.) |
 
 Unsupported `videoCodec`, `audioCodec`, `format`, or `logLevel` values **fail at startup** with a list of allowed options.
+
+### Play button click (`clickPlayTarget`)
+
+Some sites block autoplay until the user clicks a play or start control. Set `clickPlayTarget` to a CSS selector for that element; after navigation the streamer waits for it to be visible, clicks it, then nudges any `<video>` / `<audio>` elements as usual.
+
+```json
+{
+	"targetUrl": "https://your-livestream-page.com",
+	"outputUrl": "srt://host.docker.internal:5000?mode=caller",
+	"clickPlayTarget": ".play-button"
+}
+```
+
+Omit the field when the page starts playback without a click.
+
+### Hide scrollbars (`hideScrollbars`)
+
+Set `hideScrollbars` to `true` to inject CSS that hides horizontal and vertical scrollbars before the page renders. Content can still scroll programmatically; only the scrollbar UI is removed from the capture.
+
+```json
+{
+	"hideScrollbars": true
+}
+```
 
 FFmpeg logging is quiet by default: the copyright banner is hidden (`-hide_banner`), encoding progress prints every 5 seconds (`-stats_period 5` instead of FFmpeg's 0.5s), and `-loglevel` is `warning`. Set `stats` to `false` to disable progress entirely. `logLevel` accepts FFmpeg's named levels: `quiet`, `panic`, `fatal`, `error`, `warning`, `info`, `verbose`, `debug`, `trace`.
 

@@ -35,6 +35,7 @@ export const DEFAULT_STREAMER_CONFIG = {
 	width: DEFAULT_WIDTH,
 	height: DEFAULT_HEIGHT,
 	frameRate: DEFAULT_FRAME_RATE,
+	hideScrollbars: false,
 	stream: { ...DEFAULT_STREAM },
 	puppeteer: {
 		headless: DEFAULT_PUPPETEER_HEADLESS,
