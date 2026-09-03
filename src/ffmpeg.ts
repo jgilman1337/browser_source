@@ -38,7 +38,7 @@ export const SUPPORTED_VIDEO_CODECS = [
 
 export type VideoCodec = (typeof SUPPORTED_VIDEO_CODECS)[number];
 
-function supportedEnum<const T extends readonly string[]>(values: T, field: string) {
+export function supportedEnum<const T extends readonly string[]>(values: T, field: string) {
 	return z.enum(values, {
 		error: (issue) => `Unsupported ${field}: ${JSON.stringify(issue.input)}. Supported: ${values.join(", ")}`,
 	});

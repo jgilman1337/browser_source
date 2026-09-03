@@ -17,6 +17,8 @@ import {
 	clickPlayTarget,
 	hideScrollbarsOnPage,
 	kickExistingMedia,
+	loadMediaStreamTarget,
+	navigateToTarget,
 	AUTOPLAY_LAUNCH_ARGS,
 } from "./autoplay.js";
 import { loadConfig, type StreamerConfig } from "./config.js";
@@ -145,8 +147,17 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 		}
 
 		// Navigate to the target URL
-		log(`Navigating to ${config.targetUrl}...`);
-		await page.goto(config.targetUrl, { waitUntil: "networkidle2" });
+		if (config.embedAsMedia) {
+			log(
+				`Loading ${config.embedAsMedia} stream from ${config.targetUrl} (waitUntil: ${config.navigation.waitUntil}, timeout: ${config.navigation.timeoutMs}ms)...`,
+			);
+			await loadMediaStreamTarget(page, config.targetUrl, config.embedAsMedia, config.navigation);
+		} else {
+			log(
+				`Navigating to ${config.targetUrl} (waitUntil: ${config.navigation.waitUntil}, timeout: ${config.navigation.timeoutMs}ms)...`,
+			);
+			await navigateToTarget(page, config.targetUrl, config.navigation);
+		}
 
 		// If a click play target is configured, click it
 		if (config.clickPlayTarget) {

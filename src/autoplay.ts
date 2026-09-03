@@ -1,4 +1,26 @@
-/** Structural page type so autoplay works with puppeteer-stream's puppeteer-core 24 Page. */
+import type { NavigationConfig } from "./config.js";
+
+type PageWithTimeouts = {
+	setDefaultNavigationTimeout(timeout: number): void;
+	setDefaultTimeout(timeout: number): void;
+};
+
+type PageWithGoto = PageWithTimeouts & {
+	goto(url: string, options?: unknown): Promise<unknown>;
+};
+
+/** Apply navigation timeout defaults to page.goto and waitForSelector calls. */
+export function applyNavigationTimeouts(page: PageWithTimeouts, navigation: NavigationConfig): void {
+	page.setDefaultNavigationTimeout(navigation.timeoutMs);
+	page.setDefaultTimeout(navigation.timeoutMs);
+}
+
+/** Navigate to an HTML page using configured waitUntil and timeout. */
+export async function navigateToTarget(page: PageWithGoto, url: string, navigation: NavigationConfig): Promise<void> {
+	applyNavigationTimeouts(page, navigation);
+	await page.goto(url, { waitUntil: navigation.waitUntil, timeout: navigation.timeoutMs });
+}
+
 type PageLike = {
 	evaluateOnNewDocument(pageFunction: () => void): Promise<unknown>;
 	evaluate(pageFunction: () => void): Promise<unknown>;
@@ -7,6 +29,10 @@ type PageLike = {
 type PageWithClick = PageLike & {
 	waitForSelector(selector: string, options?: { visible?: boolean }): Promise<unknown>;
 	click(selector: string): Promise<void>;
+};
+
+type PageWithContent = {
+	setContent(html: string, options?: unknown): Promise<void>;
 };
 
 /**
@@ -79,6 +105,29 @@ export async function enableAutoplayOnPage(page: PageLike): Promise<void> {
 export async function clickPlayTarget(page: PageWithClick, selector: string): Promise<void> {
 	await page.waitForSelector(selector, { visible: true });
 	await page.click(selector);
+}
+
+function escapeHtmlAttr(value: string): string {
+	return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+}
+
+/**
+ * Load a direct media stream URL (MP3, AAC, HLS manifest, etc.) in a minimal HTML page.
+ * Chromium follows HTTP redirects when fetching the media element's src.
+ */
+export async function loadMediaStreamTarget(
+	page: PageWithContent & PageWithTimeouts,
+	url: string,
+	kind: "audio" | "video",
+	navigation: NavigationConfig,
+): Promise<void> {
+	const tag = kind;
+	const escapedUrl = escapeHtmlAttr(url);
+	applyNavigationTimeouts(page, navigation);
+	await page.setContent(
+		`<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#000;}</style></head><body><${tag} src="${escapedUrl}" autoplay></${tag}></body></html>`,
+		{ waitUntil: navigation.waitUntil, timeout: navigation.timeoutMs },
+	);
 }
 
 /** Inject CSS before page scripts run to hide horizontal and vertical scrollbars. */

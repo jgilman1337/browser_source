@@ -2,10 +2,14 @@
 	"targetUrl": "https://your-livestream-source.com",
 	"outputUrl": "srt://host.docker.internal:5000?mode=caller",
 	"clickPlayTarget": ".play-button",
-	"hideScrollbars": true,
-	"width": 1920,
-	"height": 1080,
+	"hideScrollbars": false,
+	"width": 1280,
+	"height": 720,
 	"frameRate": 30,
+	"navigation": {
+		"timeoutMs": 15000,
+		"waitUntil": "load"
+	},
 	"stream": {
 		"audio": true,
 		"video": true

@@ -49,7 +49,7 @@ Edit `config.json`. Only two fields are required — everything else uses defaul
 }
 ```
 
-Optional overrides: `width`, `height`, `frameRate`, `clickPlayTarget`, `hideScrollbars`, `stream`, `ffmpeg`, `puppeteer`. See [Configuration](#configuration).
+Optional overrides: `width`, `height`, `frameRate`, `clickPlayTarget`, `hideScrollbars`, `embedAsMedia`, `navigation`, `stream`, `ffmpeg`, `puppeteer`. See [Configuration](#configuration).
 
 `config.json` is gitignored. Commit changes to `config.example.json` as a template only.
 
@@ -135,25 +135,28 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 
 **Optional** (defaults in `src/config_defaults.ts`):
 
-| Field                | Default                                       |
-| -------------------- | --------------------------------------------- |
-| `width`              | `1280`                                        |
-| `height`             | `720`                                         |
-| `frameRate`          | `30`                                          |
-| `clickPlayTarget`    | _(unset)_ — CSS selector for a play/start button to click after load |
-| `hideScrollbars`     | `false` — hide horizontal and vertical scrollbars in the capture   |
-| `stream.audio`       | `true`                                        |
-| `stream.video`       | `true`                                        |
-| `ffmpeg.videoCodec`  | `libx264`                                     |
-| `ffmpeg.audioCodec`  | `aac`                                         |
-| `ffmpeg.format`      | `mpegts`                                      |
-| `ffmpeg.hideBanner`  | `true`                                        |
-| `ffmpeg.logLevel`    | `warning`                                     |
-| `ffmpeg.stats`       | `true`                                        |
-| `ffmpeg.statsPeriod` | `5`                                           |
-| `ffmpeg.extraArgs`   | `[]`                                          |
-| `puppeteer.headless` | `false`                                       |
-| `puppeteer.args`     | Docker-safe Chromium flags (no-sandbox, etc.) |
+| Field                | Default                                                                           |
+| -------------------- | --------------------------------------------------------------------------------- |
+| `width`              | `1280`                                                                            |
+| `height`             | `720`                                                                             |
+| `frameRate`          | `30`                                                                              |
+| `clickPlayTarget`    | _(unset)_ — CSS selector for a play/start button to click after load              |
+| `hideScrollbars`     | `false` — hide horizontal and vertical scrollbars in the capture                  |
+| `embedAsMedia`       | _(unset)_ — `"audio"` or `"video"` to load a direct stream URL in a media element |
+| `navigation.timeoutMs` | `60000` — max wait for page load and selector waits (`0` = no timeout)          |
+| `navigation.waitUntil` | `load` — Puppeteer lifecycle to wait for (`domcontentloaded`, `networkidle0`, `networkidle2`) |
+| `stream.audio`       | `true`                                                                            |
+| `stream.video`       | `true`                                                                            |
+| `ffmpeg.videoCodec`  | `libx264`                                                                         |
+| `ffmpeg.audioCodec`  | `aac`                                                                             |
+| `ffmpeg.format`      | `mpegts`                                                                          |
+| `ffmpeg.hideBanner`  | `true`                                                                            |
+| `ffmpeg.logLevel`    | `warning`                                                                         |
+| `ffmpeg.stats`       | `true`                                                                            |
+| `ffmpeg.statsPeriod` | `5`                                                                               |
+| `ffmpeg.extraArgs`   | `[]`                                                                              |
+| `puppeteer.headless` | `false`                                                                           |
+| `puppeteer.args`     | Docker-safe Chromium flags (no-sandbox, etc.)                                     |
 
 Unsupported `videoCodec`, `audioCodec`, `format`, or `logLevel` values **fail at startup** with a list of allowed options.
 
@@ -180,6 +183,44 @@ Set `hideScrollbars` to `true` to inject CSS that hides horizontal and vertical 
 	"hideScrollbars": true
 }
 ```
+
+### Direct media stream URLs (`embedAsMedia`)
+
+Chromium already follows HTTP redirects (301, 302, etc.) automatically. If `targetUrl` points at a **raw media stream** rather than an HTML page — for example a radio manifest that redirects to `audio/aacp` — `page.goto()` fails with `net::ERR_ABORTED` because there is no page to render.
+
+Set `embedAsMedia` to `"audio"` or `"video"` to load the URL in a minimal HTML page with an `<audio>` or `<video>` element. The browser follows redirects when fetching the media `src`, which works for stream URLs like Amperwave/IceCast manifests.
+
+```json
+{
+	"targetUrl": "https://live.amperwave.net/manifest/audacy-kroqfmaac-imc",
+	"outputUrl": "srt://host.docker.internal:5000?mode=caller",
+	"embedAsMedia": "audio"
+}
+```
+
+Use a normal web player URL (e.g. `https://www.audacy.com/kroq`) without `embedAsMedia` when you want to capture a full website.
+
+### Navigation timeouts (`navigation`)
+
+Page load uses Puppeteer's `waitUntil` and `timeoutMs` settings. The default is `load` with a 60s timeout — stricter modes like `networkidle2` often time out on ad-heavy or always-on streaming sites because the network never goes idle.
+
+```json
+{
+	"navigation": {
+		"timeoutMs": 60000,
+		"waitUntil": "load"
+	}
+}
+```
+
+| `waitUntil`        | When to use |
+| ------------------ | ----------- |
+| `domcontentloaded` | Fastest — DOM ready, resources may still be loading |
+| `load`             | Default — `load` event fired (images, stylesheets) |
+| `networkidle0`     | No network connections for 500ms (strict) |
+| `networkidle2`     | At most 2 connections for 500ms (often times out on live sites) |
+
+Set `timeoutMs` to `0` to disable the navigation timeout. The same timeout applies to `clickPlayTarget` selector waits.
 
 FFmpeg logging is quiet by default: the copyright banner is hidden (`-hide_banner`), encoding progress prints every 5 seconds (`-stats_period 5` instead of FFmpeg's 0.5s), and `-loglevel` is `warning`. Set `stats` to `false` to disable progress entirely. `logLevel` accepts FFmpeg's named levels: `quiet`, `panic`, `fatal`, `error`, `warning`, `info`, `verbose`, `debug`, `trace`.
 

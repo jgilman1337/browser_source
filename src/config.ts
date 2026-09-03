@@ -1,34 +1,90 @@
 /**
  * Configuration loader for the browser capture streamer.
  *
- * Only `targetUrl` and `outputUrl` are required in config.json — everything else
- * uses defaults in config_defaults.ts. See config.example.json.
+ * Validation is two-phase:
+ *   1. `streamerConfigInputSchema` — loose parse of config.json (partial fields, legacy `srtUrl`)
+ *   2. Merge with `DEFAULT_STREAMER_CONFIG`, then `streamerConfigSchema` — fully resolved config
+ *
+ * Only `targetUrl` and `outputUrl` are required in config.json — everything else uses defaults
+ * in config_defaults.ts. See config.example.json and README.md.
  */
 import { access, readFile } from "node:fs/promises";
+import { z } from "zod";
 
-import { DEFAULT_STREAMER_CONFIG, XVFB_COLOR_DEPTH } from "./config_defaults.js";
-import { parseFfmpegConfig, type FFmpegConfig } from "./ffmpeg.js";
+import { DEFAULT_STREAMER_CONFIG, NAVIGATION_WAIT_UNTIL, XVFB_COLOR_DEPTH } from "./config_defaults.js";
+import { ffmpegSchema, parseFfmpegConfig, supportedEnum } from "./ffmpeg.js";
 
-/** The core configuration interface for the streamer. */
-export interface StreamerConfig {
-	targetUrl: string;
-	outputUrl: string;
-	/** CSS selector for a play/start button to click after navigation (optional). */
-	clickPlayTarget?: string;
-	/** Hide horizontal and vertical scrollbars in the captured page. */
-	hideScrollbars: boolean;
-	width: number;
-	height: number;
-	frameRate: number;
-	stream: {
-		audio: boolean;
-		video: boolean;
-	};
-	puppeteer: {
-		headless: boolean;
-		args: string[];
-	};
-	ffmpeg: FFmpegConfig;
+/** `navigation` block — Puppeteer page.goto / setContent waitUntil and timeout. */
+export const navigationSchema = z.object({
+	timeoutMs: z.number().min(0, "navigation.timeoutMs must be a non-negative number (0 disables the timeout)."),
+	waitUntil: supportedEnum(NAVIGATION_WAIT_UNTIL, "navigation.waitUntil"),
+});
+
+/** Resolved navigation settings after defaults are applied. */
+export type NavigationConfig = z.infer<typeof navigationSchema>;
+
+/** Allowed Puppeteer lifecycle events for `navigation.waitUntil`. */
+export type NavigationWaitUntil = NavigationConfig["waitUntil"];
+
+/** `stream` block — which tracks puppeteer-stream captures from the page. */
+const streamSchema = z.object({
+	audio: z.boolean(),
+	video: z.boolean(),
+});
+
+/** `puppeteer` block — Chromium launch options (headless is almost always false for capture). */
+const puppeteerSchema = z.object({
+	headless: z.boolean(),
+	args: z.array(z.string()),
+});
+
+/**
+ * Fully resolved streamer config after defaults are merged.
+ * This is the shape consumed by index.ts, ffmpeg.ts, and docker-entrypoint.sh (via xvfbScreenArgs).
+ */
+export const streamerConfigSchema = z.object({
+	targetUrl: z.string().min(1, "config.json must set targetUrl."),
+	outputUrl: z.string().min(1),
+	clickPlayTarget: z.string().min(1).optional(),
+	hideScrollbars: z.boolean(),
+	embedAsMedia: z.enum(["audio", "video"]).optional(),
+	navigation: navigationSchema,
+	width: z.number().positive(),
+	height: z.number().positive(),
+	frameRate: z.number().positive(),
+	stream: streamSchema,
+	puppeteer: puppeteerSchema,
+	ffmpeg: ffmpegSchema,
+});
+
+export type StreamerConfig = z.infer<typeof streamerConfigSchema>;
+
+/**
+ * Raw config.json shape — derived from `streamerConfigSchema` via `z.deepPartial()`.
+ * All fields optional except `targetUrl`; `outputUrl` or legacy `srtUrl` required via refine.
+ */
+const streamerConfigInputSchema = z
+	.deepPartial(
+		streamerConfigSchema.omit({ outputUrl: true }).extend({
+			outputUrl: z.string().min(1).optional(),
+			srtUrl: z.string().min(1).optional(),
+		}),
+	)
+	.required({ targetUrl: true })
+	.refine((data) => Boolean(data.outputUrl ?? data.srtUrl), {
+		message: "config.json must set outputUrl (or legacy srtUrl).",
+	});
+
+/** Parsed config.json before defaults are merged. */
+type StreamerConfigInput = z.infer<typeof streamerConfigInputSchema>;
+
+/** Validate raw JSON from config.json; throws with prettified Zod errors on failure. */
+function parseStreamerConfigInput(value: unknown): StreamerConfigInput {
+	const result = streamerConfigInputSchema.safeParse(value);
+	if (!result.success) {
+		throw new Error(`Invalid config:\n${z.prettifyError(result.error)}`);
+	}
+	return result.data;
 }
 
 /** Resolved path to config.json — CONFIG_PATH in Docker, ./config.json locally. */
@@ -37,7 +93,7 @@ export function getConfigPath(): string {
 }
 
 /** Resolved output URL — prefers outputUrl, falls back to legacy srtUrl. */
-export function resolveOutputUrl(config: Partial<StreamerConfig> & { srtUrl?: string }): string {
+export function resolveOutputUrl(config: Pick<StreamerConfigInput, "outputUrl" | "srtUrl">): string {
 	if (config.outputUrl) {
 		return config.outputUrl;
 	}
@@ -47,29 +103,27 @@ export function resolveOutputUrl(config: Partial<StreamerConfig> & { srtUrl?: st
 	throw new Error("config.json must set outputUrl (or legacy srtUrl).");
 }
 
-/** Merge user config over DEFAULT_STREAMER_CONFIG. */
-export function applyConfigDefaults(parsed: Partial<StreamerConfig> & { srtUrl?: string }): StreamerConfig {
-	if (!parsed.targetUrl) {
-		throw new Error("config.json must set targetUrl.");
-	}
+/** Merge user config over DEFAULT_STREAMER_CONFIG and validate the resolved result. */
+export function applyConfigDefaults(parsed: unknown): StreamerConfig {
+	const input = parseStreamerConfigInput(parsed);
+	const { stream, puppeteer, ffmpeg, navigation, srtUrl, outputUrl, ...rest } = input;
 
-	// Apply the defaults
-	const { targetUrl, stream, puppeteer, ffmpeg, width, height, frameRate, clickPlayTarget, hideScrollbars } = parsed;
-	const config: StreamerConfig = {
+	const merged = {
 		...DEFAULT_STREAMER_CONFIG,
-		targetUrl,
-		outputUrl: resolveOutputUrl(parsed),
-		...(clickPlayTarget !== undefined ? { clickPlayTarget } : {}),
-		...(hideScrollbars !== undefined ? { hideScrollbars } : {}),
-		...(width !== undefined ? { width } : {}),
-		...(height !== undefined ? { height } : {}),
-		...(frameRate !== undefined ? { frameRate } : {}),
+		...rest,
+		outputUrl: resolveOutputUrl({ outputUrl, srtUrl }),
+		navigation: { ...DEFAULT_STREAMER_CONFIG.navigation, ...navigation },
 		stream: { ...DEFAULT_STREAMER_CONFIG.stream, ...stream },
 		puppeteer: { ...DEFAULT_STREAMER_CONFIG.puppeteer, ...puppeteer },
 		ffmpeg: parseFfmpegConfig({ ...DEFAULT_STREAMER_CONFIG.ffmpeg, ...ffmpeg }),
 	};
 
-	return config;
+	const result = streamerConfigSchema.safeParse(merged);
+	if (!result.success) {
+		throw new Error(`Invalid config:\n${z.prettifyError(result.error)}`);
+	}
+
+	return result.data;
 }
 
 /** Load and parse config.json. Fails fast with a helpful message if the file is missing. */
