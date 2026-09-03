@@ -1,43 +1,28 @@
 # Use debian slim for glibc compatibility (essential for Chrome)
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
-# Install system dependencies:
-# - curl/unzip: Bun install
-# - xvfb: virtual display for headful capture
-# - ffmpeg: encode (CPU + NVENC/VAAPI/QSV/…) and mux for SRT/RTMP/etc.
-# - libva/mesa: VAAPI runtime for Intel/AMD GPU encode in-container
-RUN apt-get update && apt-get install -y \
-    curl \
-    unzip \
-    xvfb \
-    ffmpeg \
-    libva2 \
-    mesa-va-drivers \
-    libxcomposite1 \
-    libxcursor1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxi6 \
-    libxrender1 \
-    libxtst6 \
-    libnss3 \
-    libgbm1 \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libcups2 \
-    libdrm2 \
-    libdbus-1-3 \
-    libxkbcommon0 \
-    libxrandr2 \
-    fonts-liberation \
-    pulseaudio \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_nvenc \
-    && ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_vaapi \
-    && ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_qsv
+# Pipeline packages. Chrome is the Puppeteer zip (not apt); only the .so files
+# that binary links — and that xvfb/ffmpeg/pulseaudio do not already pull — are listed.
+# libcups2: Chrome is linked against CUPS. Without libcups.so.2 it will not start.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	curl \
+	unzip \
+	ca-certificates \
+	xvfb \
+	xauth \
+	ffmpeg \
+	mesa-va-drivers \
+	pulseaudio \
+	fonts-liberation \
+	libnss3 \
+	libatk-bridge2.0-0 \
+	libcups2 \
+	libxcomposite1 \
+	libxdamage1 \
+	&& rm -rf /var/lib/apt/lists/* \
+	&& ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_nvenc \
+	&& ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_vaapi \
+	&& ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_qsv
 
 # NVENC runtime: host NVIDIA driver libs are injected when running with --gpus all.
 ENV NVIDIA_VISIBLE_DEVICES=all
