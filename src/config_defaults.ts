@@ -13,7 +13,26 @@ export const DEFAULT_STREAM = {
 } as const;
 
 /** Docker-safe Chromium flags — baked in unless overridden. */
-export const DEFAULT_PUPPETEER_ARGS = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"] as const;
+export const DEFAULT_PUPPETEER_DOCKER_ARGS = [
+	"--no-sandbox",
+	"--disable-setuid-sandbox",
+	"--disable-dev-shm-usage",
+] as const;
+
+/**
+ * GPU acceleration for Chromium in Docker.
+ * Requires `docker:run` (`--gpus all`, `/dev/dri`) and host GPU drivers.
+ */
+export const DEFAULT_PUPPETEER_GPU_ARGS = [
+	"--enable-gpu",
+	"--ignore-gpu-blocklist",
+	"--disable-gpu-sandbox",
+	"--use-gl=angle",
+	"--use-angle=vulkan",
+	"--enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks,Vulkan",
+] as const;
+
+export const DEFAULT_PUPPETEER_ARGS = [...DEFAULT_PUPPETEER_DOCKER_ARGS, ...DEFAULT_PUPPETEER_GPU_ARGS] as const;
 
 /** Default FFmpeg configuration. */
 export const DEFAULT_FFMPEG = {

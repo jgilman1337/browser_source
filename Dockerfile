@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	xauth \
 	ffmpeg \
 	mesa-va-drivers \
+	libegl1 \
+	libgbm1 \
 	pulseaudio \
 	fonts-liberation \
 	libnss3 \
@@ -26,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # NVENC runtime: host NVIDIA driver libs are injected when running with --gpus all.
 ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,video,utility,graphics
 
 # Install Bun
 RUN curl -fsSL https://bun.sh/install | bash

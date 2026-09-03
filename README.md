@@ -135,28 +135,28 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 
 **Optional** (defaults in `src/config_defaults.ts`):
 
-| Field                | Default                                                                           |
-| -------------------- | --------------------------------------------------------------------------------- |
-| `width`              | `1280`                                                                            |
-| `height`             | `720`                                                                             |
-| `frameRate`          | `30`                                                                              |
-| `clickPlayTarget`    | _(unset)_ — CSS selector for a play/start button to click after load              |
-| `hideScrollbars`     | `false` — hide horizontal and vertical scrollbars in the capture                  |
-| `embedAsMedia`       | _(unset)_ — `"audio"` or `"video"` to load a direct stream URL in a media element |
-| `navigation.timeoutMs` | `60000` — max wait for page load and selector waits (`0` = no timeout)          |
+| Field                  | Default                                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| `width`                | `1280`                                                                                        |
+| `height`               | `720`                                                                                         |
+| `frameRate`            | `30`                                                                                          |
+| `clickPlayTarget`      | _(unset)_ — CSS selector for a play/start button to click after load                          |
+| `hideScrollbars`       | `false` — hide horizontal and vertical scrollbars in the capture                              |
+| `embedAsMedia`         | _(unset)_ — `"audio"` or `"video"` to load a direct stream URL in a media element             |
+| `navigation.timeoutMs` | `60000` — max wait for page load and selector waits (`0` = no timeout)                        |
 | `navigation.waitUntil` | `load` — Puppeteer lifecycle to wait for (`domcontentloaded`, `networkidle0`, `networkidle2`) |
-| `stream.audio`       | `true`                                                                            |
-| `stream.video`       | `true`                                                                            |
-| `ffmpeg.videoCodec`  | `libx264`                                                                         |
-| `ffmpeg.audioCodec`  | `aac`                                                                             |
-| `ffmpeg.format`      | `mpegts`                                                                          |
-| `ffmpeg.hideBanner`  | `true`                                                                            |
-| `ffmpeg.logLevel`    | `warning`                                                                         |
-| `ffmpeg.stats`       | `true`                                                                            |
-| `ffmpeg.statsPeriod` | `5`                                                                               |
-| `ffmpeg.extraArgs`   | `[]`                                                                              |
-| `puppeteer.headless` | `false`                                                                           |
-| `puppeteer.args`     | Docker-safe Chromium flags (no-sandbox, etc.)                                     |
+| `stream.audio`         | `true`                                                                                        |
+| `stream.video`         | `true`                                                                                        |
+| `ffmpeg.videoCodec`    | `libx264`                                                                                     |
+| `ffmpeg.audioCodec`    | `aac`                                                                                         |
+| `ffmpeg.format`        | `mpegts`                                                                                      |
+| `ffmpeg.hideBanner`    | `true`                                                                                        |
+| `ffmpeg.logLevel`      | `warning`                                                                                     |
+| `ffmpeg.stats`         | `true`                                                                                        |
+| `ffmpeg.statsPeriod`   | `5`                                                                                           |
+| `ffmpeg.extraArgs`     | `[]`                                                                                          |
+| `puppeteer.headless`   | `false`                                                                                       |
+| `puppeteer.args`       | Docker-safe + GPU Chromium flags (no-sandbox, ANGLE/Vulkan, VAAPI decode)                     |
 
 Unsupported `videoCodec`, `audioCodec`, `format`, or `logLevel` values **fail at startup** with a list of allowed options.
 
@@ -213,11 +213,11 @@ Page load uses Puppeteer's `waitUntil` and `timeoutMs` settings. The default is 
 }
 ```
 
-| `waitUntil`        | When to use |
-| ------------------ | ----------- |
-| `domcontentloaded` | Fastest — DOM ready, resources may still be loading |
-| `load`             | Default — `load` event fired (images, stylesheets) |
-| `networkidle0`     | No network connections for 500ms (strict) |
+| `waitUntil`        | When to use                                                     |
+| ------------------ | --------------------------------------------------------------- |
+| `domcontentloaded` | Fastest — DOM ready, resources may still be loading             |
+| `load`             | Default — `load` event fired (images, stylesheets)              |
+| `networkidle0`     | No network connections for 500ms (strict)                       |
 | `networkidle2`     | At most 2 connections for 500ms (often times out on live sites) |
 
 Set `timeoutMs` to `0` to disable the navigation timeout. The same timeout applies to `clickPlayTarget` selector waits.
@@ -319,7 +319,7 @@ puppeteer_srt_streamer/
 - **Host access:** `--add-host=host.docker.internal:host-gateway`
 - **Init process:** `--init` (required — without it the container can hang silently with no app logs)
 - **Shared memory:** `--shm-size=2g`
-- **GPU:** `docker:run` passes `--gpus all` and `--device /dev/dri`; FFmpeg includes NVENC, VAAPI, and QSV encoders (host driver/libs required at runtime)
+- **GPU:** `docker:run` passes `--gpus all` and `--device /dev/dri`; Chromium defaults enable GPU rendering (ANGLE/Vulkan + VAAPI decode); FFmpeg includes NVENC, VAAPI, and QSV encoders (host driver/libs required at runtime). `NVIDIA_DRIVER_CAPABILITIES` includes `graphics` for OpenGL/Vulkan in Chrome.
 - **Failures:** FFmpeg or browser errors exit the container (non-zero) instead of hanging
 
 ## Troubleshooting
