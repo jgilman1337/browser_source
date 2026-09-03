@@ -186,22 +186,22 @@ All scripts are run with Bun (`bun run <script>`). npm is not supported.
 
 ### Docker (run the streamer only)
 
-| Script                  | Description                                                             |
-| ----------------------- | ----------------------------------------------------------------------- |
-| `bun run docker:build`  | Build the `puppeteer-srt-streamer` image only                           |
-| `bun run docker:run`    | Rebuild + run (`--gpus all`, `--device /dev/dri`, mounts `config.json`) |
+| Script                 | Description                                                             |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `bun run docker:build` | Build the `puppeteer-srt-streamer` image only                           |
+| `bun run docker:run`   | Rebuild + run (`--gpus all`, `--device /dev/dri`, mounts `config.json`) |
 
 The container only receives a read-only `config.json` mount. Source, lint rules, and formatter config are baked into the image at build time and are not modified at runtime.
 
 ### Host tooling (lint / format / typecheck)
 
-| Script                  | Description          |
-| ----------------------- | -------------------- |
-| `bun run lint`          | ESLint               |
-| `bun run lint:fix`      | ESLint with auto-fix |
-| `bun run format`        | Prettier (write)     |
-| `bun run format:check`  | Prettier (check)     |
-| `bun run typecheck`     | `tsc --noEmit`       |
+| Script                 | Description          |
+| ---------------------- | -------------------- |
+| `bun run lint`         | ESLint               |
+| `bun run lint:fix`     | ESLint with auto-fix |
+| `bun run format`       | Prettier (write)     |
+| `bun run format:check` | Prettier (check)     |
+| `bun run typecheck`    | `tsc --noEmit`       |
 
 Requires `bun install` on the host (`node_modules/`).
 
@@ -284,6 +284,28 @@ Use `libx264` or `h264_nvenc` in `config.json` (default is `libx264`).
 ### Chromium crashes
 
 `docker:run` already passes `--shm-size=2g` and `--disable-dev-shm-usage` is in the default Puppeteer args.
+
+## Why Xvfb and PulseAudio (not Wayland / PipeWire)
+
+This container runs headful Chromium in Docker with no physical display or sound card. Xvfb and a PulseAudio null sink are **plumbing**, not the capture path — puppeteer-stream reads from Chromium's tab capture API (WebM), not from the framebuffer or audio server.
+
+```
+Chromium → Xvfb (RAM framebuffer)          ← render surface only
+         → PulseAudio null sink           ← fake output so tab audio works
+         → puppeteer-stream (tab capture) → FFmpeg → outputUrl
+```
+
+**Xvfb (X11)** is a minimal virtual framebuffer: no compositor, no input, no window manager. **Wayland** has no equivalent standalone server — you run a full compositor (e.g. Weston headless), which is heavier for the same job. Wayland makes sense on a real desktop; here we only need something for Chromium to paint into.
+
+**PulseAudio null sink** is a single fake output device. **PipeWire** would add wireplumber and often a Pulse compatibility layer, with no benefit for one null sink. PipeWire shines on desktops (Bluetooth, JACK replacement, multi-app routing).
+
+|         | This container          | Desktop                      |
+| ------- | ----------------------- | ---------------------------- |
+| Display | Xvfb (fake framebuffer) | Wayland compositor → monitor |
+| Audio   | Pulse null sink         | PipeWire → speakers          |
+| Capture | Tab API (bypasses both) | N/A                          |
+
+If Chromium ever drops X11 in containers, the likely migration is Weston headless + `--ozone-platform=wayland` — swap the entrypoint, keep the puppeteer-stream → FFmpeg pipeline. Chromium still maintains an Ozone/X11 backend today and falls back to X11 when no Wayland server is present.
 
 ## License
 
