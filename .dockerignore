@@ -8,5 +8,5 @@ config.json
 .eslintignore
 .prettierrc
 .prettierignore
-puppeteer_srt_streamer.code-workspace
+browser_source.code-workspace
 .dockerignore

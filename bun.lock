@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "puppeteer_srt_streamer",
+      "name": "browser_source",
       "dependencies": {
         "puppeteer": "^25.9.0",
         "puppeteer-stream": "^3.0.23",

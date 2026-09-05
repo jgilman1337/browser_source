@@ -1,5 +1,5 @@
 {
-	"name": "puppeteer_srt_streamer",
+	"name": "browser_source",
 	"version": "1.0.0",
 	"packageManager": "bun@1.4.0",
 	"main": "src/index.ts",
@@ -14,8 +14,8 @@
 		"format": "bun x prettier --write src/**/*.{html,js,ts,tsx,scss,md,css} --no-error-on-unmatched-pattern",
 		"format:check": "bun x prettier --check src/**/*.{html,js,ts,tsx,scss,md,css} --no-error-on-unmatched-pattern",
 		"typecheck": "bun x tsc --noEmit",
-		"docker:build": "docker build -t puppeteer-srt-streamer .",
-		"docker:run": "bun run docker:build && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" puppeteer-srt-streamer"
+		"docker:build": "docker build -t browser_source .",
+		"docker:run": "bun run docker:build && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" browser_source"
 	},
 	"dependencies": {
 		"puppeteer": "^25.9.0",

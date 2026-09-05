@@ -1,4 +1,4 @@
-# puppeteer_srt_streamer
+# browser_source
 
 Capture audio and video from a website using Chromium in Docker (Xvfb + PulseAudio), encode with FFmpeg, and push to **SRT, RTMP, or any FFmpeg output URL**.
 
@@ -260,7 +260,7 @@ All scripts are run with Bun (`bun run <script>`). npm is not supported.
 
 | Script                 | Description                                                             |
 | ---------------------- | ----------------------------------------------------------------------- |
-| `bun run docker:build` | Build the `puppeteer-srt-streamer` image only                           |
+| `bun run docker:build` | Build the `browser_source` image only                                   |
 | `bun run docker:run`   | Rebuild + run (`--gpus all`, `--device /dev/dri`, mounts `config.json`) |
 
 The container only receives a read-only `config.json` mount. Source, lint rules, and formatter config are baked into the image at build time and are not modified at runtime.
@@ -297,7 +297,7 @@ bun run typecheck
 ## Project structure
 
 ```
-puppeteer_srt_streamer/
+browser_source/
 ├── src/
 │   ├── index.ts              # Pipeline orchestration + fail-fast shutdown
 │   ├── config.ts             # Config loader + types
@@ -366,7 +366,7 @@ Use `libx264` or `h264_nvenc` in `config.json` (default is `libx264`).
 
 1. Host has NVIDIA drivers and the [container toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) installed.
 2. `docker:run` already passes `--gpus all` — without the toolkit, Docker will refuse to start the container.
-3. Verify encoders in the image: `docker run --rm puppeteer-srt-streamer ffmpeg -encoders 2>/dev/null | grep nvenc`
+3. Verify encoders in the image: `docker run --rm browser_source ffmpeg -encoders 2>/dev/null | grep nvenc`
 4. Fall back to `"videoCodec": "libx264"` in `config.json` if the GPU is unavailable.
 
 ### Chromium crashes
