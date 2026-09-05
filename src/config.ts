@@ -2,7 +2,7 @@
  * Configuration loader for the browser capture streamer.
  *
  * Validation is two-phase:
- *   1. `streamerConfigInputSchema` — loose parse of config.json (partial fields, legacy `srtUrl`)
+ *   1. `streamerConfigInputSchema` — loose parse of config.json (partial fields)
  *   2. Merge with `DEFAULT_STREAMER_CONFIG`, then `streamerConfigSchema` — fully resolved config
  *
  * Only `targetUrl` and `outputUrl` are required in config.json — everything else uses defaults
@@ -73,19 +73,11 @@ export type StreamerConfig = z.infer<typeof streamerConfigSchema>;
 
 /**
  * Raw config.json shape — derived from `streamerConfigSchema` via `z.deepPartial()`.
- * All fields optional except `targetUrl`; `outputUrl` or legacy `srtUrl` required via refine.
+ * Only `targetUrl` and `outputUrl` are required; everything else is optional.
  */
 const streamerConfigInputSchema = z
-	.deepPartial(
-		streamerConfigSchema.omit({ outputUrl: true }).extend({
-			outputUrl: z.string().min(1).optional(),
-			srtUrl: z.string().min(1).optional(),
-		}),
-	)
-	.required({ targetUrl: true })
-	.refine((data) => Boolean(data.outputUrl ?? data.srtUrl), {
-		message: "config.json must set outputUrl (or legacy srtUrl).",
-	});
+	.deepPartial(streamerConfigSchema)
+	.required({ targetUrl: true, outputUrl: true });
 
 /** Parsed config.json before defaults are merged. */
 type StreamerConfigInput = z.infer<typeof streamerConfigInputSchema>;
@@ -104,26 +96,14 @@ export function getConfigPath(): string {
 	return process.env.CONFIG_PATH ?? `${process.cwd()}/config.json`;
 }
 
-/** Resolved output URL — prefers outputUrl, falls back to legacy srtUrl. */
-export function resolveOutputUrl(config: Pick<StreamerConfigInput, "outputUrl" | "srtUrl">): string {
-	if (config.outputUrl) {
-		return config.outputUrl;
-	}
-	if (config.srtUrl) {
-		return config.srtUrl;
-	}
-	throw new Error("config.json must set outputUrl (or legacy srtUrl).");
-}
-
 /** Merge user config over DEFAULT_STREAMER_CONFIG and validate the resolved result. */
 export function applyConfigDefaults(parsed: unknown): StreamerConfig {
 	const input = parseStreamerConfigInput(parsed);
-	const { stream, puppeteer, ffmpeg, navigation, srtUrl, outputUrl, ...rest } = input;
+	const { stream, puppeteer, ffmpeg, navigation, ...rest } = input;
 
 	const merged = {
 		...DEFAULT_STREAMER_CONFIG,
 		...rest,
-		outputUrl: resolveOutputUrl({ outputUrl, srtUrl }),
 		navigation: { ...DEFAULT_STREAMER_CONFIG.navigation, ...navigation },
 		stream: { ...DEFAULT_STREAMER_CONFIG.stream, ...stream },
 		puppeteer: { ...DEFAULT_STREAMER_CONFIG.puppeteer, ...puppeteer },
