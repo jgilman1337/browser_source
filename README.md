@@ -147,8 +147,8 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 | `navigation.waitUntil`      | `load` — Puppeteer lifecycle to wait for (`domcontentloaded`, `networkidle0`, `networkidle2`)     |
 | `stream.audio`              | `true`                                                                                            |
 | `stream.video`              | `true`                                                                                            |
-| `stream.videoBitsPerSecond` | `8000000` (8 Mbps) — MediaRecorder capture bitrate; Chrome defaults ~2.5 Mbps and cause artifacts |
-| `stream.audioBitsPerSecond` | `192000` (192 kbps) — MediaRecorder tab-audio capture bitrate                                     |
+| `stream.videoMbitsPerSecond` | `8` — MediaRecorder capture bitrate in Mbit/s; Chrome defaults ~2.5 Mbps and cause artifacts |
+| `stream.audioKbitsPerSecond` | `192` — MediaRecorder tab-audio capture bitrate in kbit/s                                     |
 | `stream.mimeType`           | `video/webm;codecs=vp9` — VP9 for gradients; use `video/webm;codecs=vp8` if capture fails         |
 | `ffmpeg.videoCodec`         | `libx264`                                                                                         |
 | `ffmpeg.audioCodec`         | `aac`                                                                                             |
@@ -157,6 +157,8 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 | `ffmpeg.logLevel`           | `warning`                                                                                         |
 | `ffmpeg.stats`              | `true`                                                                                            |
 | `ffmpeg.statsPeriod`        | `5`                                                                                               |
+| `ffmpeg.retries`            | `10` — extra FFmpeg launches after a drop, timeout, or connection refused                         |
+| `ffmpeg.retryAfter`         | `5` — seconds to wait before each FFmpeg retry                                                    |
 | `ffmpeg.extraArgs`          | `[]`                                                                                              |
 | `puppeteer.headless`        | `false`                                                                                           |
 | `puppeteer.args`            | Docker-safe + GPU Chromium flags (no-sandbox, ANGLE/Vulkan, VAAPI decode)                         |
@@ -300,7 +302,8 @@ puppeteer_srt_streamer/
 │   ├── index.ts              # Pipeline orchestration + fail-fast shutdown
 │   ├── config.ts             # Config loader + types
 │   ├── config_defaults.ts    # Default values (720p30, ffmpeg, puppeteer)
-│   ├── ffmpeg.ts             # FFmpeg arg builder (codecs, formats)
+│   ├── ffmpeg.ts             # FFmpeg spawn, pipe, and reconnect
+│   ├── ffmpeg_config.ts      # FFmpeg arg builder (codecs, formats)
 │   ├── autoplay.ts           # Chromium autoplay helpers
 │   └── logger.ts             # Timestamped logging
 ├── scripts/
@@ -338,11 +341,15 @@ puppeteer_srt_streamer/
 4. `docker:run` rebuilds automatically. Check logs for `Output: srt://...` at startup and that FFmpeg does **not** say `to 'undefined'`.
 5. `no sockets to check, this would deadlock` on Ctrl+C before a caller connects is a harmless libsrt shutdown message.
 
+### FFmpeg connection dropped / refused / timeout
+
+The browser capture stays up; only FFmpeg is restarted. Set `ffmpeg.retries` (extra launches after a failure) and `ffmpeg.retryAfter` (seconds to wait). Consecutive failures reset after FFmpeg has stayed up for 15 seconds. When retries are exhausted, the process exits.
+
 ### Blocky video / compression artifacts
 
 Two separate bitrates apply:
 
-1. **Capture** (`stream.videoBitsPerSecond`, `stream.audioBitsPerSecond`, `stream.mimeType`) — VP9/Opus WebM from puppeteer-stream. Default video is **8 Mbps** VP9; try `12000000`–`16000000` for sharp edges and gradients. If capture fails to start, set `mimeType` to `video/webm;codecs=vp8`.
+1. **Capture** (`stream.videoMbitsPerSecond`, `stream.audioKbitsPerSecond`, `stream.mimeType`) — VP9/Opus WebM from puppeteer-stream. Default video is **8 Mbps** VP9; try `12`–`16` for sharp edges and gradients. If capture fails to start, set `mimeType` to `video/webm;codecs=vp8`.
 2. **Encode** (`ffmpeg.extraArgs`) — H.264/NVENC output. NVENC defaults to `p4` + `hq` (not `p1` ultra-low-latency). Add `-rc cbr` with `-b:v` for fixed bitrate. Do **not** use libx264 `-preset medium` with `h264_nvenc` (NVENC uses `p1`–`p7`).
 
 Smooth CSS gradients can still show mild **8-bit banding** in `yuv420p` — that is a format limit, not always fixable with bitrate alone.

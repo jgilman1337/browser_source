@@ -1,223 +1,276 @@
-import { z } from "zod";
+/**
+ * FFmpeg child process: spawn, pipe capture into stdin, and retry on drop / timeout / refused.
+ *
+ * CLI args come from `ffmpeg_config.ts`. Chromium is owned by `index.ts` and is not relaunched here.
+ */
+import { spawn, type ChildProcess } from "child_process";
+import type { Readable } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type { StreamerConfig } from "./config.js";
+import { buildFFmpegArgs } from "./ffmpeg_config.js";
+import { error, log } from "./logger.js";
 
-/** FFmpeg video encoders supported by this app (validated at config load). */
-export const SUPPORTED_VIDEO_CODECS = [
-	// CPU
-	"libx264",
-	"libx265",
-	// NVIDIA NVENC
-	"h264_nvenc",
-	"hevc_nvenc",
-	// Intel / AMD VAAPI (Linux)
-	"h264_vaapi",
-	"hevc_vaapi",
-	"mjpeg_vaapi",
-	"mpeg2_vaapi",
-	"vp8_vaapi",
-	"vp9_vaapi",
-	"av1_vaapi",
-	// Intel Quick Sync Video
-	"h264_qsv",
-	"hevc_qsv",
-	"mjpeg_qsv",
-	"mpeg2_qsv",
-	"vp9_qsv",
-	// AMD AMF (Windows / some FFmpeg builds)
-	"h264_amf",
-	"hevc_amf",
-	"av1_amf",
-	// V4L2 mem2mem (e.g. Raspberry Pi)
-	"h264_v4l2m2m",
-	"hevc_v4l2m2m",
-	"h263_v4l2m2m",
-	"mpeg4_v4l2m2m",
-	"vp8_v4l2m2m",
-] as const;
-
-export type VideoCodec = (typeof SUPPORTED_VIDEO_CODECS)[number];
-
-export function supportedEnum<const T extends readonly string[]>(values: T, field: string) {
-	return z.enum(values, {
-		error: (issue) => `Unsupported ${field}: ${JSON.stringify(issue.input)}. Supported: ${values.join(", ")}`,
-	});
-}
-
-/** Output muxers allowed in config — must match the target protocol/container. */
-export const SUPPORTED_OUTPUT_FORMATS = ["mpegts", "flv", "mp4", "matroska", "mov", "nut"] as const;
-
-export type OutputFormat = (typeof SUPPORTED_OUTPUT_FORMATS)[number];
-
-/** Audio encoders allowed in config. */
-export const SUPPORTED_AUDIO_CODECS = ["aac", "libopus", "libmp3lame", "ac3"] as const;
-
-export type AudioCodec = (typeof SUPPORTED_AUDIO_CODECS)[number];
-
-/** FFmpeg `-loglevel` names allowed in config. */
-export const SUPPORTED_LOG_LEVELS = [
-	"quiet",
-	"panic",
-	"fatal",
-	"error",
-	"warning",
-	"info",
-	"verbose",
-	"debug",
-	"trace",
-] as const;
-
-export type LogLevel = (typeof SUPPORTED_LOG_LEVELS)[number];
-
-/** FFmpeg block in config.json — codecs, muxer, logging. */
-export const ffmpegSchema = z.object({
-	videoCodec: supportedEnum(SUPPORTED_VIDEO_CODECS, "ffmpeg.videoCodec"),
-	audioCodec: supportedEnum(SUPPORTED_AUDIO_CODECS, "ffmpeg.audioCodec"),
-	format: supportedEnum(SUPPORTED_OUTPUT_FORMATS, "ffmpeg.format"),
-	extraArgs: z.array(z.string()).default([]),
-	hideBanner: z.boolean(),
-	logLevel: supportedEnum(SUPPORTED_LOG_LEVELS, "ffmpeg.logLevel"),
-	stats: z.boolean(),
-	statsPeriod: z.number().positive("must be a positive number of seconds"),
-});
-
-export type FFmpegConfig = z.infer<typeof ffmpegSchema>;
-
-/** Fail fast when config references an unsupported FFmpeg codec, muxer, or log option. */
-export function parseFfmpegConfig(value: unknown): FFmpegConfig {
-	const result = ffmpegSchema.safeParse(value);
-	if (!result.success) {
-		throw new Error(`Invalid ffmpeg config:\n${z.prettifyError(result.error)}`);
-	}
-	return result.data;
-}
-
-type EncoderProfile = {
-	/** Flags placed before `-i` (hw device init, VAAPI device path, etc.). */
-	preInputArgs?: string[];
-	/** Video filter chain applied after demux (hwupload for GPU encoders). */
-	videoFilter?: string;
-	/** Encoder-specific flags placed after `-c:v`. */
-	args: string[];
-};
-
-const NVENC_PROFILE: EncoderProfile = {
-	args: ["-preset", "p4", "-tune", "hq", "-spatial_aq", "1", "-temporal_aq", "1"],
-};
-
-const QSV_HW: Omit<EncoderProfile, "args"> = {
-	preInputArgs: ["-init_hw_device", "qsv=hw", "-filter_hw_device", "hw"],
-	videoFilter: "format=nv12,hwupload=extra_hw_frames=64",
-};
-
-const QSV_LOW_LATENCY: EncoderProfile = {
-	...QSV_HW,
-	args: ["-preset", "veryfast", "-look_ahead", "0"],
-};
-
-const AMF_LOW_LATENCY: EncoderProfile = {
-	args: ["-quality", "speed", "-usage", "lowlatency", "-rc", "cbr"],
-};
-
-function vaapiProfile(qp = "24"): EncoderProfile {
-	return {
-		preInputArgs: ["-vaapi_device", process.env.VAAPI_DEVICE ?? "/dev/dri/renderD128"],
-		videoFilter: "format=nv12,hwupload",
-		args: ["-qp", qp],
-	};
-}
-
-const V4L2_PROFILE: EncoderProfile = { args: [] };
-
-/** Muxer flags that keep live MPEG-TS timestamps playable in ffplay/VLC. */
-const OUTPUT_FORMAT_ARGS: Partial<Record<OutputFormat, string[]>> = {
-	mpegts: ["-max_interleave_delta", "0", "-fflags", "+genpts"],
-};
-
-function buildVideoFilter(profile: EncoderProfile, frameRate: number): string {
-	const base = `fps=${frameRate},format=yuv420p,gradfun=strength=1.2:radius=12`;
-	if (profile.videoFilter) {
-		return `${base},${profile.videoFilter}`;
-	}
-	// Tab capture VP8/VP9 often has alpha + irregular fps — normalize before encode.
-	return base;
-}
-
-/** Low-latency tuning per video encoder — unknown codecs are rejected at validation. */
-const VIDEO_ENCODER_PROFILES: Record<VideoCodec, EncoderProfile> = {
-	libx264: { args: ["-preset", "veryfast", "-tune", "zerolatency"] },
-	libx265: { args: ["-preset", "veryfast", "-tune", "zerolatency"] },
-	h264_nvenc: NVENC_PROFILE,
-	hevc_nvenc: NVENC_PROFILE,
-	h264_vaapi: vaapiProfile(),
-	hevc_vaapi: vaapiProfile(),
-	mjpeg_vaapi: vaapiProfile(),
-	mpeg2_vaapi: vaapiProfile(),
-	vp8_vaapi: vaapiProfile(),
-	vp9_vaapi: vaapiProfile(),
-	av1_vaapi: vaapiProfile(),
-	h264_qsv: QSV_LOW_LATENCY,
-	hevc_qsv: QSV_LOW_LATENCY,
-	mjpeg_qsv: QSV_LOW_LATENCY,
-	mpeg2_qsv: QSV_LOW_LATENCY,
-	vp9_qsv: QSV_LOW_LATENCY,
-	h264_amf: AMF_LOW_LATENCY,
-	hevc_amf: AMF_LOW_LATENCY,
-	av1_amf: AMF_LOW_LATENCY,
-	h264_v4l2m2m: V4L2_PROFILE,
-	hevc_v4l2m2m: V4L2_PROFILE,
-	h263_v4l2m2m: V4L2_PROFILE,
-	mpeg4_v4l2m2m: V4L2_PROFILE,
-	vp8_v4l2m2m: V4L2_PROFILE,
+/**
+ * Callbacks into the capture pipeline so this module does not import `index.ts`
+ * (that would be a circular dependency).
+ */
+export type FFmpegRuntimeHooks = {
+	/** True after SIGINT/SIGTERM/`exitPipeline` — retries must not spawn another process. */
+	isShuttingDown: () => boolean;
+	/** Tear down Chromium + FFmpeg and exit the process. */
+	exitPipeline: (exitCode: number, message?: string, err?: unknown) => Promise<void>;
 };
 
 /**
- * Build FFmpeg CLI args for WebM stdin → encoded output (SRT, RTMP, file, etc.).
- * WebM VP8/VP9 must be re-encoded; stream copy to MPEG-TS yields audio-only output.
+ * Current FFmpeg child. Event handlers compare `proc !== ffmpeg` so a process we already
+ * replaced (or killed during retry) cannot start a second retry.
  */
-export function buildFfmpegArgs(config: StreamerConfig): string[] {
-	// Validate the output URL
-	const { ffmpeg, outputUrl, frameRate } = config;
-	if (!outputUrl) {
-		throw new Error("outputUrl is missing — set outputUrl in config.json");
+let ffmpeg: ChildProcess | null = null;
+/**
+ * Page capture stream from puppeteer-stream. Kept alive across FFmpeg restarts and
+ * re-piped into each new stdin. If this ends, retries are impossible and we exit.
+ */
+let captureStream: Readable | null = null;
+/** Cached `buildFFmpegArgs()` result so retries spawn with the same CLI. */
+let ffmpegArgs: string[] = [];
+/**
+ * Consecutive FFmpeg failures since the last stable run.
+ * Compared against `config.ffmpeg.retries` (extra launches after the first failure).
+ */
+let ffmpegFailures = 0;
+/**
+ * True while `handleFFmpegFailure` is running. FFmpeg often emits `error`, `close`, and
+ * stdin `EPIPE` for one death — this makes that a single retry.
+ */
+let ffmpegRestarting = false;
+/** Timer that clears `ffmpegFailures` after FFmpeg has stayed up for `FFMPEG_STABLE_MS`. */
+let ffmpegStableTimer: ReturnType<typeof setTimeout> | null = null;
+/** Set when `connectFFmpeg` runs; used by retry handlers. */
+let hooks: FFmpegRuntimeHooks | null = null;
+
+/**
+ * After FFmpeg stays up this long, consecutive retry counts reset.
+ * A listener that is down for a few minutes still uses the retry budget; a drop hours
+ * later starts from zero again.
+ */
+const FFMPEG_STABLE_MS = 15_000;
+
+function requireHooks(): FFmpegRuntimeHooks {
+	if (!hooks) {
+		throw new Error("FFmpeg runtime hooks are not initialized");
+	}
+	return hooks;
+}
+
+/** Cancel a pending stable-reset so a crash during the window still counts as consecutive. */
+function clearFFmpegStableTimer(): void {
+	if (ffmpegStableTimer) {
+		clearTimeout(ffmpegStableTimer);
+		ffmpegStableTimer = null;
+	}
+}
+
+/** Schedule a reset of `ffmpegFailures` once this FFmpeg instance has been healthy long enough. */
+function markFFmpegStableSoon(): void {
+	clearFFmpegStableTimer();
+	ffmpegStableTimer = setTimeout(() => {
+		ffmpegFailures = 0;
+		ffmpegStableTimer = null;
+	}, FFMPEG_STABLE_MS);
+}
+
+/**
+ * Unpipe capture and SIGTERM FFmpeg. Call from pipeline shutdown so the readable is not destroyed
+ * before Chromium closes.
+ */
+export function stopFFmpeg(): void {
+	clearFFmpegStableTimer();
+
+	if (captureStream && ffmpeg?.stdin) {
+		captureStream.unpipe(ffmpeg.stdin);
 	}
 
-	// Get the video codec
-	const videoCodec = ffmpeg.videoCodec;
-	const profile = VIDEO_ENCODER_PROFILES[videoCodec];
-	const args: string[] = [];
-
-	// Global logging flags first so they apply to hw-device init too.
-	if (ffmpeg.hideBanner) {
-		args.push("-hide_banner");
+	if (ffmpeg && !ffmpeg.killed) {
+		ffmpeg.kill("SIGTERM");
 	}
-	args.push("-loglevel", ffmpeg.logLevel);
-	if (ffmpeg.stats) {
-		args.push("-stats", "-stats_period", String(ffmpeg.statsPeriod));
+
+	ffmpeg = null;
+}
+
+/**
+ * Spawn FFmpeg, pipe the existing capture stream into stdin, and attach retry watchers.
+ *
+ * @param config - Resolved streamer config (used by FFmpeg watchers for retries / retryAfter).
+ * @throws If stdin or the capture stream is missing.
+ */
+function spawnFFmpeg(config: StreamerConfig): void {
+	const proc = spawn("ffmpeg", ffmpegArgs);
+	ffmpeg = proc;
+
+	// Forward FFmpeg's own logs (stats, SRT errors, encoder warnings) into our logger
+	proc.stderr?.on("data", (data: Buffer) => {
+		for (const line of data.toString().trimEnd().split("\n")) {
+			if (line) {
+				log(`[FFmpeg] ${line}`);
+			}
+		}
+	});
+
+	if (!proc.stdin) {
+		throw new Error("FFmpeg stdin is not available");
+	}
+	if (!captureStream) {
+		throw new Error("Capture stream is not available");
+	}
+
+	// WebM chunks from the page → FFmpeg stdin. Same readable is reused after a retry.
+	captureStream.pipe(proc.stdin);
+	watchFFmpeg(proc, config);
+	markFFmpegStableSoon();
+}
+
+/**
+ * Retry FFmpeg on spawn failure, process `close`, or stdin errors (connection drop, timeout, refused).
+ * Ignore events from a superseded child (`proc !== ffmpeg`) so a kill during retry is a no-op.
+ *
+ * @param proc - The child these listeners belong to (must still be the global `ffmpeg` to act).
+ * @param config - Supplies `ffmpeg.retries` and `ffmpeg.retryAfter`.
+ */
+function watchFFmpeg(proc: ChildProcess, config: StreamerConfig): void {
+	const { isShuttingDown } = requireHooks();
+
+	// Spawn failed (ENOENT, etc.) — not the same as FFmpeg exiting after a refused SRT connect
+	proc.on("error", (err: Error) => {
+		if (proc !== ffmpeg) {
+			return;
+		}
+		void handleFFmpegFailure(config, "FFmpeg process error", err);
+	});
+
+	// Process exited. SRT "connection refused" / timeout usually shows up here as a non-zero code.
+	proc.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
+		if (proc !== ffmpeg) {
+			return;
+		}
+		log(`FFmpeg process exited with code ${code}${signal ? ` (signal ${signal})` : ""}`);
+		if (isShuttingDown()) {
+			return;
+		}
+		// Live encodes should not exit 0; treat a clean close as unexpected and retry.
+		const failed = code !== 0 || signal !== null;
+		void handleFFmpegFailure(config, failed ? "FFmpeg exited with an error" : "FFmpeg exited unexpectedly");
+	});
+
+	proc.stdin?.on("error", (err: NodeJS.ErrnoException) => {
+		// EPIPE races with `close` when FFmpeg dies; `close` owns the retry.
+		if (proc !== ffmpeg || isShuttingDown() || err.code === "EPIPE") {
+			return;
+		}
+		void handleFFmpegFailure(config, "FFmpeg stdin error", err);
+	});
+}
+
+/**
+ * Unpipe capture, wait `ffmpeg.retryAfter` seconds, and spawn FFmpeg again.
+ * Does not relaunch Chromium. Exits the process when `ffmpeg.retries` consecutive
+ * failures are used up, or if the capture stream has already ended.
+ *
+ * @param config - Resolved streamer config (`ffmpeg.retries`, `ffmpeg.retryAfter`, `outputUrl`).
+ * @param message - Human-readable reason for this failure (included in logs / final exit).
+ * @param err - Optional underlying error from spawn / stdin.
+ */
+async function handleFFmpegFailure(config: StreamerConfig, message: string, err?: unknown): Promise<void> {
+	const { isShuttingDown, exitPipeline } = requireHooks();
+
+	// SIGTERM or an overlapping handler (error + close) is already driving shutdown/retry
+	if (isShuttingDown() || ffmpegRestarting) {
+		return;
+	}
+	ffmpegRestarting = true;
+	clearFFmpegStableTimer();
+
+	// Drop the global pointer first so this child's `close` after SIGTERM is ignored.
+	const proc = ffmpeg;
+	ffmpeg = null;
+	if (captureStream && proc?.stdin) {
+		captureStream.unpipe(proc.stdin);
+	}
+	if (proc && !proc.killed) {
+		proc.kill("SIGTERM");
+	}
+
+	const { retries, retryAfter } = config.ffmpeg;
+	if (ffmpegFailures >= retries) {
+		ffmpegRestarting = false;
+		await exitPipeline(1, `${message} (exhausted ${retries} retries)`, err);
+		return;
+	}
+
+	ffmpegFailures += 1;
+	const retryMsg = `${message}. Retry ${ffmpegFailures}/${retries} in ${retryAfter}s...`;
+	if (err !== undefined) {
+		error(retryMsg, err);
 	} else {
-		args.push("-nostats");
+		log(retryMsg);
 	}
 
-	// Add the pre-input arguments
-	if (profile.preInputArgs?.length) {
-		args.push(...profile.preInputArgs);
+	// Give the stream listener time to come back (or the network to recover)
+	if (retryAfter > 0) {
+		await delay(retryAfter * 1000);
+	}
+	if (isShuttingDown()) {
+		ffmpegRestarting = false;
+		return;
 	}
 
-	// Video encoder + overrides, then audio — keeps `-b:v`/`-rc` on the video encoder.
-	args.push("-i", "pipe:0", "-vf", buildVideoFilter(profile, frameRate));
-	args.push("-c:v", videoCodec, ...profile.args);
-	if (ffmpeg.extraArgs.length) {
-		args.push(...ffmpeg.extraArgs);
-	}
-	args.push("-c:a", ffmpeg.audioCodec);
-
-	// Add the format arguments
-	const formatArgs = OUTPUT_FORMAT_ARGS[ffmpeg.format];
-	if (formatArgs?.length) {
-		args.push(...formatArgs);
+	const stream = captureStream;
+	if (!stream || stream.readableEnded || stream.destroyed) {
+		ffmpegRestarting = false;
+		await exitPipeline(1, "Capture stream ended; cannot restart FFmpeg");
+		return;
 	}
 
-	// Add the output format and output URL
-	args.push("-f", ffmpeg.format, outputUrl);
-	return args;
+	try {
+		spawnFFmpeg(config);
+		log(`Streaming live to ${config.outputUrl}...`);
+	} catch (spawnErr) {
+		ffmpegRestarting = false;
+		await handleFFmpegFailure(config, "FFmpeg respawn failed", spawnErr);
+		return;
+	}
+
+	ffmpegRestarting = false;
+}
+
+/**
+ * Build FFmpeg args, pipe `stream` into a new process, and retry according to config.
+ *
+ * @param config - Fully resolved streamer config.
+ * @param stream - puppeteer-stream WebM capture (kept for retries).
+ * @param runtime - Shutdown / exit callbacks from `index.ts`.
+ */
+export async function connectFFmpeg(
+	config: StreamerConfig,
+	stream: Readable,
+	runtime: FFmpegRuntimeHooks,
+): Promise<void> {
+	hooks = runtime;
+	captureStream = stream;
+
+	ffmpegArgs = buildFFmpegArgs(config);
+	const outputTarget = ffmpegArgs.at(-1);
+	if (!outputTarget || outputTarget === "undefined") {
+		throw new Error(
+			`FFmpeg output URL is missing (got "${outputTarget}"). Rebuild the image: bun run docker:build`,
+		);
+	}
+	log(`FFmpeg: ffmpeg ${ffmpegArgs.join(" ")}`);
+
+	try {
+		spawnFFmpeg(config);
+	} catch (err) {
+		// Spawn can fail before `close` (missing binary / no stdin) — same retry path as a later drop.
+		await handleFFmpegFailure(config, "FFmpeg failed to start", err);
+	}
 }

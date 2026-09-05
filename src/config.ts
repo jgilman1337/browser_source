@@ -13,7 +13,7 @@ import type { BrowserMimeType } from "puppeteer-stream";
 import { z } from "zod";
 
 import { DEFAULT_STREAMER_CONFIG, NAVIGATION_WAIT_UNTIL, XVFB_COLOR_DEPTH } from "./config_defaults.js";
-import { ffmpegSchema, parseFfmpegConfig, supportedEnum } from "./ffmpeg.js";
+import { ffmpegSchema, parseFfmpegConfig, supportedEnum } from "./ffmpeg_config.js";
 
 /** Zod schema for puppeteer-stream `BrowserMimeType` (compile-time union, runtime string). */
 function browserMimeTypeSchema(field: string) {
@@ -39,8 +39,8 @@ export type NavigationWaitUntil = NavigationConfig["waitUntil"];
 const streamSchema = z.object({
 	audio: z.boolean(),
 	video: z.boolean(),
-	videoBitsPerSecond: z.number().positive(),
-	audioBitsPerSecond: z.number().positive(),
+	videoMbitsPerSecond: z.number().positive(),
+	audioKbitsPerSecond: z.number().positive(),
 	mimeType: browserMimeTypeSchema("stream.mimeType"),
 });
 
@@ -52,7 +52,7 @@ const puppeteerSchema = z.object({
 
 /**
  * Fully resolved streamer config after defaults are merged.
- * This is the shape consumed by index.ts, ffmpeg.ts, and docker-entrypoint.sh (via xvfbScreenArgs).
+ * This is the shape consumed by index.ts, ffmpeg.ts, ffmpeg_config.ts, and docker-entrypoint.sh (via xvfbScreenArgs).
  */
 export const streamerConfigSchema = z.object({
 	targetUrl: z.string().min(1, "config.json must set targetUrl."),
@@ -75,9 +75,7 @@ export type StreamerConfig = z.infer<typeof streamerConfigSchema>;
  * Raw config.json shape — derived from `streamerConfigSchema` via `z.deepPartial()`.
  * Only `targetUrl` and `outputUrl` are required; everything else is optional.
  */
-const streamerConfigInputSchema = z
-	.deepPartial(streamerConfigSchema)
-	.required({ targetUrl: true, outputUrl: true });
+const streamerConfigInputSchema = z.deepPartial(streamerConfigSchema).required({ targetUrl: true, outputUrl: true });
 
 /** Parsed config.json before defaults are merged. */
 type StreamerConfigInput = z.infer<typeof streamerConfigInputSchema>;

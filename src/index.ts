@@ -5,10 +5,13 @@
  *   1. Launch Chromium (headful via Xvfb in Docker)
  *   2. puppeteer-stream captures page audio/video as WebM
  *   3. FFmpeg encodes and pushes to outputUrl (SRT, RTMP, file, etc.)
+ *   4. If FFmpeg dies (drop, timeout, connection refused), it is respawned
+ *      `ffmpeg.retries` times, waiting `ffmpeg.retryAfter` seconds between attempts.
+ *      Chromium capture is left running so a listener restart does not reload the page.
  *
  * Config is read from config.json — see config.example.json.
  */
-import { spawn, ChildProcess } from "child_process";
+import type { Readable } from "node:stream";
 import puppeteer from "puppeteer";
 import { getStream, launch, wss } from "puppeteer-stream";
 
@@ -22,7 +25,7 @@ import {
 	AUTOPLAY_LAUNCH_ARGS,
 } from "./autoplay.js";
 import { loadConfig, type StreamerConfig } from "./config.js";
-import { buildFfmpegArgs } from "./ffmpeg.js";
+import { connectFFmpeg, stopFFmpeg } from "./ffmpeg.js";
 import { error, log } from "./logger.js";
 
 /** puppeteer-stream bundles puppeteer-core 24; types must come from `launch()`, not puppeteer 25. */
@@ -30,15 +33,12 @@ type Browser = Awaited<ReturnType<typeof launch>>;
 
 /** Held at module scope so SIGINT/SIGTERM handlers can clean up. */
 let browser: Browser | null = null;
-let ffmpeg: ChildProcess | null = null;
+/** Once true, retries stop and SIGINT/SIGTERM/`close` must not spawn another FFmpeg. */
 let shuttingDown = false;
 
 /** Tear down FFmpeg, Chromium, and puppeteer-stream's internal WebSocket server. */
 async function shutdown(): Promise<void> {
-	// Kill the FFmpeg process if it is not killed
-	if (ffmpeg && !ffmpeg.killed) {
-		ffmpeg.kill("SIGTERM");
-	}
+	stopFFmpeg();
 
 	// Close the browser if it is not closed
 	if (browser) {
@@ -76,38 +76,22 @@ async function exitPipeline(exitCode: number, message?: string, err?: unknown): 
 	process.exit(exitCode);
 }
 
-/** Wire fatal-error handlers once capture and FFmpeg are running. */
-function watchPipeline(stream: NodeJS.ReadableStream): void {
+/**
+ * Wire fatal-error handlers on Chromium and the capture stream.
+ * FFmpeg failures are retried in `ffmpeg.ts`.
+ */
+function watchCapture(stream: Readable): void {
 	// If the browser is disconnected unexpectedly, exit the process
 	browser?.on("disconnected", () => {
 		void exitPipeline(1, "Browser disconnected unexpectedly");
 	});
 
-	// If the capture stream errors, exit the process
-	stream.on("error", (err: Error) => {
+	// If the capture stream errors, exit — except EPIPE, which means FFmpeg's stdin closed
+	stream.on("error", (err: NodeJS.ErrnoException) => {
+		if (err.code === "EPIPE") {
+			return;
+		}
 		void exitPipeline(1, "Capture stream error", err);
-	});
-
-	// If the FFmpeg process errors, exit the process
-	ffmpeg?.on("error", (err: Error) => {
-		void exitPipeline(1, "FFmpeg process error", err);
-	});
-
-	// If the FFmpeg process closes, exit the process
-	ffmpeg?.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
-		log(`FFmpeg process exited with code ${code}${signal ? ` (signal ${signal})` : ""}`);
-		if (!shuttingDown) {
-			const failed = code !== 0 || signal !== null;
-			void exitPipeline(failed ? 1 : 0, failed ? "FFmpeg exited with an error" : undefined);
-		}
-	});
-
-	// If the FFmpeg stdin errors, exit the process
-	ffmpeg?.stdin?.on("error", (err: NodeJS.ErrnoException) => {
-		// EPIPE is normal when FFmpeg exits before the capture stream finishes.
-		if (!shuttingDown && err.code !== "EPIPE") {
-			void exitPipeline(1, "FFmpeg stdin error", err);
-		}
 	});
 }
 
@@ -142,6 +126,7 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 		// Allow video/audio autoplay without user clicks (see autoplay.ts).
 		await enableAutoplayOnPage(page);
 
+		// If the scrollbars are hidden, hide them on the page
 		if (config.hideScrollbars) {
 			await hideScrollbarsOnPage(page);
 		}
@@ -170,48 +155,32 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 
 		// getStream() returns a Node readable stream of WebM chunks from the page.
 		// frameSize is milliseconds per packet (inverse of frame rate).
+		// MediaRecorder wants bits/s; config is Mbit/s video and kbit/s audio.
 		const stream = await getStream(page, {
 			audio: config.stream.audio,
 			video: config.stream.video,
 			frameSize: Math.round(1000 / config.frameRate),
-			videoBitsPerSecond: config.stream.videoBitsPerSecond,
-			...(config.stream.video ? { mimeType: config.stream.mimeType } : {}),
-			...(config.stream.audio ? { audioBitsPerSecond: config.stream.audioBitsPerSecond } : {}),
+			// If video is enabled, set the mime type and video bits per second
+			...(config.stream.video
+				? {
+						mimeType: config.stream.mimeType,
+						videoBitsPerSecond: Math.round(config.stream.videoMbitsPerSecond * 1_000_000),
+					}
+				: {}),
+
+			// If audio is enabled, set the audio bits per second
+			...(config.stream.audio
+				? { audioBitsPerSecond: Math.round(config.stream.audioKbitsPerSecond * 1_000) }
+				: {}),
 		});
 
 		log("Browser capture initialized. Connecting to FFmpeg...");
 
-		// Build the FFmpeg CLI args
-		const ffmpegArgs = buildFfmpegArgs(config);
-		const outputTarget = ffmpegArgs.at(-1);
-		if (!outputTarget || outputTarget === "undefined") {
-			throw new Error(
-				`FFmpeg output URL is missing (got "${outputTarget}"). Rebuild the image: bun run docker:build`,
-			);
-		}
-		log(`FFmpeg: ffmpeg ${ffmpegArgs.join(" ")}`);
-
-		// Spawn the FFmpeg process
-		ffmpeg = spawn("ffmpeg", ffmpegArgs);
-
-		// If the FFmpeg stderr is available, log the data
-		ffmpeg.stderr?.on("data", (data: Buffer) => {
-			for (const line of data.toString().trimEnd().split("\n")) {
-				if (line) {
-					log(`[FFmpeg] ${line}`);
-				}
-			}
+		watchCapture(stream as Readable);
+		await connectFFmpeg(config, stream as Readable, {
+			isShuttingDown: () => shuttingDown,
+			exitPipeline,
 		});
-
-		// If the FFmpeg stdin is not available, throw an error
-		if (!ffmpeg.stdin) {
-			throw new Error("FFmpeg stdin is not available");
-		}
-
-		// Watch the pipeline
-		watchPipeline(stream);
-		// Pipe the stream to the FFmpeg stdin
-		stream.pipe(ffmpeg.stdin);
 
 		log(`Streaming live to ${config.outputUrl}...`);
 	} catch (err) {
@@ -231,12 +200,15 @@ process.on("SIGTERM", () => {
 	void exitPipeline(0);
 });
 
+//
+// Main entry point
+//
 // Load the configuration and start the streaming process on startup
 log(`Loading config from ${process.env.CONFIG_PATH ?? `${process.cwd()}/config.json`}...`);
 const config = await loadConfig();
 const captureRates = [
-	`${config.stream.videoBitsPerSecond / 1_000_000} Mbps video`,
-	...(config.stream.audio ? [`${config.stream.audioBitsPerSecond / 1000} kbps audio`] : []),
+	`${config.stream.videoMbitsPerSecond} Mbps video`,
+	...(config.stream.audio ? [`${config.stream.audioKbitsPerSecond} kbps audio`] : []),
 ].join(", ");
 log(
 	`Output: ${config.outputUrl} | video: ${config.ffmpeg.videoCodec} | format: ${config.ffmpeg.format} | capture: ${captureRates}`,

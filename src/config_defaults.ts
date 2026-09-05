@@ -12,10 +12,10 @@ export const DEFAULT_FRAME_RATE = 30;
 export const DEFAULT_STREAM = {
 	audio: true,
 	video: true,
-	/** MediaRecorder VP8/VP9 capture bitrate — low defaults (~2.5 Mbps) cause visible artifacts before FFmpeg. */
-	videoBitsPerSecond: 8_000_000,
-	/** MediaRecorder Opus/Vorbis capture bitrate for tab audio. */
-	audioBitsPerSecond: 192_000,
+	/** MediaRecorder VP8/VP9 capture bitrate in Mbit/s — low defaults (~2.5 Mbps) cause visible artifacts before FFmpeg. */
+	videoMbitsPerSecond: 8,
+	/** MediaRecorder Opus/Vorbis capture bitrate for tab audio, in kbit/s. */
+	audioKbitsPerSecond: 192,
 	/** VP9 compresses gradients better than VP8; fall back to `video/webm;codecs=vp8` if capture fails. */
 	mimeType: "video/webm;codecs=vp9" satisfies BrowserMimeType,
 } as const;
@@ -52,6 +52,10 @@ export const DEFAULT_FFMPEG = {
 	logLevel: "warning",
 	stats: true,
 	statsPeriod: 5,
+	/** Extra FFmpeg launches after a failed/exited process (connection drop, timeout, refused). */
+	retries: 10,
+	/** Seconds to wait before each FFmpeg retry. */
+	retryAfter: 5,
 };
 
 /** puppeteer-stream requires a rendered surface — never default to headless. */

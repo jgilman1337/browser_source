@@ -13,8 +13,8 @@
 	"stream": {
 		"audio": true,
 		"video": true,
-		"videoBitsPerSecond": 12000000,
-		"audioBitsPerSecond": 192000,
+		"videoMbitsPerSecond": 12,
+		"audioKbitsPerSecond": 192,
 		"mimeType": "video/webm;codecs=vp9"
 	},
 	"puppeteer": {
@@ -39,6 +39,8 @@
 		"logLevel": "warning",
 		"stats": true,
 		"statsPeriod": 5,
+		"retries": 10,
+		"retryAfter": 5,
 		"extraArgs": ["-rc", "cbr", "-b:v", "4M", "-maxrate", "4M", "-bufsize", "8M", "-b:a", "192k"]
 	}
 }
