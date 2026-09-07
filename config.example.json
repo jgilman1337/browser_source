@@ -28,7 +28,9 @@
 			"--disable-gpu-sandbox",
 			"--use-gl=angle",
 			"--use-angle=vulkan",
-			"--enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks,Vulkan"
+			"--enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks,Vulkan",
+			"--disable-web-security",
+			"--allow-file-access-from-files"
 		]
 	},
 	"ffmpeg": {
