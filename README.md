@@ -82,6 +82,86 @@ The container pushes to **`host.docker.internal`**, not `localhost`. Inside the 
 
 `bun run docker:run` adds `--add-host=host.docker.internal:host-gateway` so this works on Linux. Docker Desktop provides `host.docker.internal` automatically on Mac/Windows.
 
+## Deployment with datarhei Restreamer
+
+Want to use this project in production? [Datarhei Restreamer](https://datarhei.github.io/restreamer/)
+is the officially supported and recommended way of doing so, especially when the
+browsersource should feed one or more external RTMP destinations such as YouTube,
+Twitch, or a custom RTMP endpoint. Restreamer receives the SRT feed, provides a
+preview, handles the RTMP fan-out, and gracefully reconnects on connection faults
+locally or remotely. This project does not provide a Restreamer image or Compose
+stack; run Restreamer separately and point `outputUrl` to it.
+
+### Prerequisites
+
+Install Docker Compose and, if using the CUDA Restreamer image, NVIDIA drivers
+and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+
+### Minimal Restreamer Compose example
+
+Create a separate directory for Restreamer and save this as
+`docker-compose.yml`:
+
+```yaml
+services:
+    restreamer:
+        image: datarhei/restreamer:cuda-latest
+        restart: unless-stopped
+        runtime: nvidia
+        environment:
+            NVIDIA_VISIBLE_DEVICES: all
+            NVIDIA_DRIVER_CAPABILITIES: all
+        volumes:
+            - ./restreamer/config:/core/config
+            - ./restreamer/data:/core/data
+        ports:
+            - "8080:8080"
+            - "6000:6000/udp"
+```
+
+Start it with:
+
+```bash
+mkdir -p restreamer/config restreamer/data
+docker compose up -d
+```
+
+For a non-NVIDIA host, use a Restreamer image appropriate for that host and
+remove `runtime: nvidia` and the NVIDIA environment variables.
+
+### Add the browser source to Restreamer
+
+1. Open `http://localhost:8080` and create a Restreamer login on the first
+   visit.
+2. Enable the SRT server on UDP port `6000`, without a token or passphrase.
+3. Add a channel and choose **SRT server** as the video source.
+4. Configure this project's `config.json` with the SRT URL for that server:
+
+    ```json
+    {
+    	"targetUrl": "https://your-livestream-page.com",
+    	"outputUrl": "srt://<restreamer-host>:6000?streamid=<Restreamer stream ID>"
+    }
+    ```
+
+    Use `restreamer` as the hostname only when the browser source container is
+    on the same Docker network as the Restreamer container. Otherwise use the
+    Restreamer host's reachable hostname or IP. Preserve the `streamid` supplied
+    by Restreamer, including its `mode:publish` setting.
+
+5. Choose **passthrough** as the encoder, or choose H.264 with `h264_nvenc`
+   if Restreamer should re-encode. Usually passthrough should suffice since
+   the browser source can already encode to H.264 and even use hardware
+   accelerated variants like `h264_nvenc`
+
+6. Add publication outputs for YouTube, Twitch, or a custom RTMP destination.
+
+View the incoming stream in the Restreamer preview. Check Restreamer logs with:
+
+```bash
+docker compose logs -f restreamer
+```
+
 ## Output formats
 
 `outputUrl` + `ffmpeg.format` choose the protocol/container. Common pairings:
@@ -135,33 +215,33 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 
 **Optional** (defaults in `src/config_defaults.ts`):
 
-| Field                       | Default                                                                                           |
-| --------------------------- | ------------------------------------------------------------------------------------------------- |
-| `width`                     | `1280`                                                                                            |
-| `height`                    | `720`                                                                                             |
-| `frameRate`                 | `30`                                                                                              |
-| `clickPlayTarget`           | _(unset)_ — CSS selector for a play/start button to click after load                              |
-| `hideScrollbars`            | `false` — hide horizontal and vertical scrollbars in the capture                                  |
-| `embedAsMedia`              | _(unset)_ — `"audio"` or `"video"` to load a direct stream URL in a media element                 |
-| `navigation.timeoutMs`      | `60000` — max wait for page load and selector waits (`0` = no timeout)                            |
-| `navigation.waitUntil`      | `load` — Puppeteer lifecycle to wait for (`domcontentloaded`, `networkidle0`, `networkidle2`)     |
-| `stream.audio`              | `true`                                                                                            |
-| `stream.video`              | `true`                                                                                            |
-| `stream.videoMbitsPerSecond` | `8` — MediaRecorder capture bitrate in Mbit/s; Chrome defaults ~2.5 Mbps and cause artifacts |
+| Field                        | Default                                                                                       |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
+| `width`                      | `1280`                                                                                        |
+| `height`                     | `720`                                                                                         |
+| `frameRate`                  | `30`                                                                                          |
+| `clickPlayTarget`            | _(unset)_ — CSS selector for a play/start button to click after load                          |
+| `hideScrollbars`             | `false` — hide horizontal and vertical scrollbars in the capture                              |
+| `embedAsMedia`               | _(unset)_ — `"audio"` or `"video"` to load a direct stream URL in a media element             |
+| `navigation.timeoutMs`       | `60000` — max wait for page load and selector waits (`0` = no timeout)                        |
+| `navigation.waitUntil`       | `load` — Puppeteer lifecycle to wait for (`domcontentloaded`, `networkidle0`, `networkidle2`) |
+| `stream.audio`               | `true`                                                                                        |
+| `stream.video`               | `true`                                                                                        |
+| `stream.videoMbitsPerSecond` | `8` — MediaRecorder capture bitrate in Mbit/s; Chrome defaults ~2.5 Mbps and cause artifacts  |
 | `stream.audioKbitsPerSecond` | `192` — MediaRecorder tab-audio capture bitrate in kbit/s                                     |
-| `stream.mimeType`           | `video/webm;codecs=vp9` — VP9 for gradients; use `video/webm;codecs=vp8` if capture fails         |
-| `ffmpeg.videoCodec`         | `libx264`                                                                                         |
-| `ffmpeg.audioCodec`         | `aac`                                                                                             |
-| `ffmpeg.format`             | `mpegts`                                                                                          |
-| `ffmpeg.hideBanner`         | `true`                                                                                            |
-| `ffmpeg.logLevel`           | `warning`                                                                                         |
-| `ffmpeg.stats`              | `true`                                                                                            |
-| `ffmpeg.statsPeriod`        | `5`                                                                                               |
-| `ffmpeg.retries`            | `10` — extra FFmpeg launches after a drop, timeout, or connection refused                         |
-| `ffmpeg.retryAfter`         | `5` — seconds to wait before each FFmpeg retry                                                    |
-| `ffmpeg.extraArgs`          | `[]`                                                                                              |
-| `puppeteer.headless`        | `false`                                                                                           |
-| `puppeteer.args`            | Docker-safe + GPU Chromium flags (no-sandbox, ANGLE/Vulkan, VAAPI decode)                         |
+| `stream.mimeType`            | `video/webm;codecs=vp9` — VP9 for gradients; use `video/webm;codecs=vp8` if capture fails     |
+| `ffmpeg.videoCodec`          | `libx264`                                                                                     |
+| `ffmpeg.audioCodec`          | `aac`                                                                                         |
+| `ffmpeg.format`              | `mpegts`                                                                                      |
+| `ffmpeg.hideBanner`          | `true`                                                                                        |
+| `ffmpeg.logLevel`            | `warning`                                                                                     |
+| `ffmpeg.stats`               | `true`                                                                                        |
+| `ffmpeg.statsPeriod`         | `5`                                                                                           |
+| `ffmpeg.retries`             | `10` — extra FFmpeg launches after a drop, timeout, or connection refused                     |
+| `ffmpeg.retryAfter`          | `5` — seconds to wait before each FFmpeg retry                                                |
+| `ffmpeg.extraArgs`           | `[]`                                                                                          |
+| `puppeteer.headless`         | `false`                                                                                       |
+| `puppeteer.args`             | Docker-safe + GPU Chromium flags (no-sandbox, ANGLE/Vulkan, VAAPI decode)                     |
 
 Unsupported `videoCodec`, `audioCodec`, `format`, or `logLevel` values **fail at startup** with a list of allowed options.
 
