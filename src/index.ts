@@ -23,11 +23,11 @@ import {
 	loadMediaStreamTarget,
 	navigateToTarget,
 	AUTOPLAY_LAUNCH_ARGS,
-} from "./autoplay.js";
-import { loadConfig, type StreamerConfig } from "./config.js";
-import { connectFFmpeg, stopFFmpeg } from "./ffmpeg.js";
-import { error, log } from "./logger.js";
-import { runtimeName } from "./runtime.js";
+} from "./autoplay";
+import { loadConfig, type StreamerConfig } from "./config";
+import { connectFFmpeg, stopFFmpeg } from "./ffmpeg";
+import { error, log } from "./logger";
+import { runtimeName } from "./runtime";
 
 /** puppeteer-stream bundles puppeteer-core 24; types must come from `launch()`, not puppeteer 25. */
 type Browser = Awaited<ReturnType<typeof launch>>;

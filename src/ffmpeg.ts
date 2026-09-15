@@ -7,10 +7,10 @@ import { spawn, type ChildProcess } from "child_process";
 import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 
-import type { StreamerConfig } from "./config.js";
-import { buildFFmpegArgs } from "./ffmpeg_config.js";
-import { error, log } from "./logger.js";
-import { packageManagerRun } from "./runtime.js";
+import type { StreamerConfig } from "./config";
+import { buildFFmpegArgs } from "./ffmpeg_config";
+import { error, log } from "./logger";
+import { packageManagerRun } from "./runtime";
 
 /**
  * Callbacks into the capture pipeline so this module does not import `index.ts`
