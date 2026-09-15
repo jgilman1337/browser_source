@@ -262,7 +262,7 @@ export async function connectFFmpeg(
 	const outputTarget = ffmpegArgs.at(-1);
 	if (!outputTarget || outputTarget === "undefined") {
 		throw new Error(
-			`FFmpeg output URL is missing (got "${outputTarget}"). Rebuild the image: bun run docker:build`,
+			`FFmpeg output URL is missing (got "${outputTarget}"). Rebuild the image: npm run docker:build`,
 		);
 	}
 	log(`FFmpeg: ffmpeg ${ffmpegArgs.join(" ")}`);

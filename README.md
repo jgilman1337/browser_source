@@ -2,7 +2,7 @@
 
 Capture audio and video from a website using Chromium in Docker (Xvfb + PulseAudio), encode with FFmpeg, and push to **SRT, RTMP, or any FFmpeg output URL**.
 
-Built with **[Bun](https://bun.sh)**. **Docker is only for running the streamer** — the image is immutable at runtime (only `config.json` is mounted in). Lint, format, and typecheck run **on the host**.
+Built with **Node.js** and **npm** (this branch targets older x64 CPUs that lack SSE4.2 and cannot run Bun). **Docker is only for running the streamer** — the image is immutable at runtime (only `config.json` is mounted in). Lint, format, and typecheck run **on the host**.
 
 ## How it works
 
@@ -22,14 +22,14 @@ puppeteer-stream always outputs **WebM (VP8/VP9)**. FFmpeg re-encodes (H.264 via
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) (run the streamer only)
-- [Bun](https://bun.sh) ≥ 1.4 (host tooling: install deps, lint, format, typecheck)
+- [Node.js](https://nodejs.org/) ≥ 20 (host tooling: install deps, lint, format, typecheck)
 - [ffplay](https://ffmpeg.org/ffplay.html) (or another listener) for local SRT testing
 - **Optional:** NVIDIA GPU + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) for `h264_nvenc` (`docker:run` passes `--gpus all`)
 
 Install host dependencies once:
 
 ```bash
-bun install
+npm install
 ```
 
 ## Quick start (local SRT testing)
@@ -64,12 +64,12 @@ ffplay -i "srt://0.0.0.0:5000?mode=listener"
 ### 3. Run the streamer
 
 ```bash
-bun run docker:run
+npm run docker:run
 ```
 
 `docker:run` rebuilds the image, then starts the container. It mounts `config.json` at `/app/config.json` (read-only). Logs stream to your terminal — look for `Output: srt://...` at startup. Press `Ctrl+C` to stop; the container is removed automatically (`--rm`).
 
-Use `bun run docker:build` alone when you only want to rebuild without running.
+Use `npm run docker:build` alone when you only want to rebuild without running.
 
 ### Reaching the host from Docker
 
@@ -80,7 +80,7 @@ The container pushes to **`host.docker.internal`**, not `localhost`. Inside the 
 | ffplay listener (host)                  | `srt://0.0.0.0:5000?mode=listener`            |
 | streamer `outputUrl` (container → host) | `srt://host.docker.internal:5000?mode=caller` |
 
-`bun run docker:run` adds `--add-host=host.docker.internal:host-gateway` so this works on Linux. Docker Desktop provides `host.docker.internal` automatically on Mac/Windows.
+`npm run docker:run` adds `--add-host=host.docker.internal:host-gateway` so this works on Linux. Docker Desktop provides `host.docker.internal` automatically on Mac/Windows.
 
 ## Deployment with datarhei Restreamer
 
@@ -198,7 +198,7 @@ Example **NVENC** (GPU encode, lower CPU):
 }
 ```
 
-Run with GPU access via `bun run docker:run` (requires NVIDIA drivers + container toolkit on the host).
+Run with GPU access via `npm run docker:run` (requires NVIDIA drivers + container toolkit on the host).
 
 Legacy configs using `srtUrl` still work — it is migrated to `outputUrl` at load time.
 
@@ -334,14 +334,14 @@ cp config.example.json config.json
 
 ## Scripts
 
-All scripts are run with Bun (`bun run <script>`). npm is not supported.
+All scripts are run with npm (`npm run <script>`).
 
 ### Docker (run the streamer only)
 
 | Script                 | Description                                                             |
 | ---------------------- | ----------------------------------------------------------------------- |
-| `bun run docker:build` | Build the `browser_source` image only                                   |
-| `bun run docker:run`   | Rebuild + run (`--gpus all`, `--device /dev/dri`, mounts `config.json`) |
+| `npm run docker:build` | Build the `browser_source` image only                                   |
+| `npm run docker:run`   | Rebuild + run (`--gpus all`, `--device /dev/dri`, mounts `config.json`) |
 
 The container only receives a read-only `config.json` mount. Source, lint rules, and formatter config are baked into the image at build time and are not modified at runtime.
 
@@ -349,29 +349,29 @@ The container only receives a read-only `config.json` mount. Source, lint rules,
 
 | Script                 | Description          |
 | ---------------------- | -------------------- |
-| `bun run lint`         | ESLint               |
-| `bun run lint:fix`     | ESLint with auto-fix |
-| `bun run format`       | Prettier (write)     |
-| `bun run format:check` | Prettier (check)     |
-| `bun run typecheck`    | `tsc --noEmit`       |
+| `npm run lint`         | ESLint               |
+| `npm run lint:fix`     | ESLint with auto-fix |
+| `npm run format`       | Prettier (write)     |
+| `npm run format:check` | Prettier (check)     |
+| `npm run typecheck`    | `tsc --noEmit`       |
 
-Requires `bun install` on the host (`node_modules/`).
+Requires `npm install` on the host (`node_modules/`).
 
 ### Typical workflow
 
 ```bash
-bun install
+npm install
 cp config.example.json config.json
 # edit config.json
 
 ffplay -i "srt://0.0.0.0:5000?mode=listener"   # separate terminal
 
-bun run docker:run
+npm run docker:run
 
 # before committing (on the host)
-bun run lint
-bun run format:check
-bun run typecheck
+npm run lint
+npm run format:check
+npm run typecheck
 ```
 
 ## Project structure
@@ -391,15 +391,14 @@ browser_source/
 ├── config.example.json       # Template (committed)
 ├── config.json               # Your config (gitignored, mounted into container)
 ├── Dockerfile
-├── package.json              # bun scripts (primary interface)
-├── bun.lock
-└── bunfig.toml
+├── package.json              # npm scripts (primary interface)
+└── package-lock.json
 ```
 
 ## Docker details
 
 - **Base image:** `debian:bookworm-slim`
-- **Runtime:** Bun (production deps only in the image)
+- **Runtime:** Node.js 20 + tsx (production deps only in the image)
 - **Display/audio:** Xvfb (virtual display) + PulseAudio null sink (tab audio capture)
 - **Config:** `config.json` mounted at `/app/config.json` via `docker:run`
 - **Host access:** `--add-host=host.docker.internal:host-gateway`
@@ -416,7 +415,7 @@ browser_source/
     ```bash
     ffplay -i "srt://0.0.0.0:5000?mode=listener"
     ```
-2. Start ffplay **before** `bun run docker:run`.
+2. Start ffplay **before** `npm run docker:run`.
 3. Confirm `outputUrl` uses `host.docker.internal`, not `localhost`.
 4. `docker:run` rebuilds automatically. Check logs for `Output: srt://...` at startup and that FFmpeg does **not** say `to 'undefined'`.
 5. `no sockets to check, this would deadlock` on Ctrl+C before a caller connects is a harmless libsrt shutdown message.

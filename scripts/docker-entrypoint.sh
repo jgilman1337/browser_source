@@ -23,7 +23,7 @@ if ! pulseaudio --check 2>/dev/null; then
 	fi
 fi
 
-SCREEN_ARGS=$(bun -e "
+SCREEN_ARGS=$(npx tsx -e "
 import { loadConfig, xvfbScreenArgs } from './src/config.ts';
 const config = await loadConfig();
 process.stdout.write(xvfbScreenArgs(config));
@@ -31,5 +31,4 @@ process.stdout.write(xvfbScreenArgs(config));
 
 echo "[entrypoint] xvfb screen: ${SCREEN_ARGS}" >&2
 
-# Run the app directly — "bun run start" can hang silently under xvfb-run (no TTY).
-exec xvfb-run --auto-servernum --server-args="-screen 0 ${SCREEN_ARGS}" bun src/index.ts
+exec xvfb-run --auto-servernum --server-args="-screen 0 ${SCREEN_ARGS}" npx tsx src/index.ts

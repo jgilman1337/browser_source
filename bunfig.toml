@@ -1,2 +1,0 @@
-[install]
-# Docker builds use `bun install --frozen-lockfile` for reproducible installs.

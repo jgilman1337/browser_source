@@ -26,27 +26,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	&& ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_vaapi \
 	&& ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_qsv
 
+# Node.js 20 LTS — runs on older x64 CPUs (SSE2+) that lack SSE4.2 (unlike Bun).
+ENV NODE_VERSION=20.18.3
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+	| tar -xJ -C /usr/local --strip-components=1
+
 # NVENC runtime: host NVIDIA driver libs are injected when running with --gpus all.
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,video,utility,graphics
-
-# Install Bun
-RUN curl -fsSL https://bun.sh/install | bash
-ENV PATH="/root/.bun/bin:${PATH}"
 
 WORKDIR /app
 
 # Set the configuration path
 ENV CONFIG_PATH=/app/config.json
-# Shared Chrome cache for bun install postinstall and `puppeteer browsers install`.
+# Shared Chrome cache for npm postinstall and `puppeteer browsers install`.
 ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
 
 # Install production dependencies only — lint/format/typecheck run on the host.
-COPY package.json bun.lock bunfig.toml tsconfig.json ./
-RUN bun install --frozen-lockfile --production
+COPY package.json package-lock.json tsconfig.json ./
+RUN npm ci --omit=dev
 
 # Ensure the Chrome binary exists (postinstall can skip download in some environments).
-RUN bun x puppeteer browsers install chrome
+RUN npx puppeteer browsers install chrome
 
 # Copy the source code
 COPY src ./src
