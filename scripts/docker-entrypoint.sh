@@ -3,6 +3,7 @@ set -e
 
 CONFIG_PATH="${CONFIG_PATH:-/app/config.json}"
 
+echo "[entrypoint] node: $(node --version)" >&2
 echo "[entrypoint] config: ${CONFIG_PATH}" >&2
 
 # Chromium tab-audio capture needs an output device. Docker has no sound card — use a null sink.
@@ -23,11 +24,7 @@ if ! pulseaudio --check 2>/dev/null; then
 	fi
 fi
 
-SCREEN_ARGS=$(npx tsx -e "
-import { loadConfig, xvfbScreenArgs } from './src/config.ts';
-const config = await loadConfig();
-process.stdout.write(xvfbScreenArgs(config));
-")
+SCREEN_ARGS=$(npx tsx scripts/xvfb-screen-args.ts)
 
 echo "[entrypoint] xvfb screen: ${SCREEN_ARGS}" >&2
 
