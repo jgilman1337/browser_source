@@ -135,26 +135,48 @@ remove `runtime: nvidia` and the NVIDIA environment variables.
    visit.
 2. Enable the SRT server on UDP port `6000`, without a token or passphrase.
 3. Add a channel and choose **SRT server** as the video source.
-4. Configure this project's `config.json` with the SRT URL for that server:
+4. **Copy the channel ID** Restreamer assigns to that channel (a UUID such as
+   `38978037-39f6-44f5-99da-d0da84a20a70`). It appears in the channel settings
+   or in the SRT ingest URL Restreamer shows during setup. You need this ID in
+   the next step — browser_source will not connect without it.
+5. Put the channel ID in **browser_source** config as the `streamid` query param.
+   With the root `headless-livestream-browser` Compose stack, edit
+   `browser_source_cfg/config.json` (mounted into the
+   container). When running browser_source alone, edit `config.json` in this repo
+   instead:
 
     ```json
     {
     	"targetUrl": "https://your-livestream-page.com",
-    	"outputUrl": "srt://<restreamer-host>:6000?streamid=<Restreamer stream ID>"
+    	"outputUrl": "srt://restreamer:6000?mode=caller&transtype=live&streamid=<CHANNEL-ID>.stream,mode:publish"
     }
     ```
 
-    Use `restreamer` as the hostname only when the browser source container is
-    on the same Docker network as the Restreamer container. Otherwise use the
-    Restreamer host's reachable hostname or IP. Preserve the `streamid` supplied
-    by Restreamer, including its `mode:publish` setting.
+    Replace `<CHANNEL-ID>` with the UUID from step 4. Keep the suffix
+    `.stream,mode:publish` exactly as Restreamer supplies it.
 
-5. Choose **passthrough** as the encoder, or choose H.264 with `h264_nvenc`
+    | Where browser_source runs              | Host in `outputUrl`                         |
+    | -------------------------------------- | ------------------------------------------- |
+    | Same Docker Compose stack as Restreamer | `restreamer` (service name, not `localhost`) |
+    | Another machine or outside Compose      | Restreamer host IP or hostname              |
+
+    Restreamer’s UI may show a public address like
+    `srt://203.0.113.1:6000?mode=caller`. Use that IP only when browser_source
+    is **not** on the same Compose network; otherwise use `restreamer` and still
+    include the `streamid` from your channel.
+
+    Restart after editing:
+
+    ```bash
+    docker compose up -d browser_source
+    ```
+
+6. Choose **passthrough** as the encoder, or choose H.264 with `h264_nvenc`
    if Restreamer should re-encode. Usually passthrough should suffice since
    the browser source can already encode to H.264 and even use hardware
    accelerated variants like `h264_nvenc`
 
-6. Add publication outputs for YouTube, Twitch, or a custom RTMP destination.
+7. Add publication outputs for YouTube, Twitch, or a custom RTMP destination.
 
 View the incoming stream in the Restreamer preview. Check Restreamer logs with:
 
