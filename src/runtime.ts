@@ -2,13 +2,13 @@
  * Cross-runtime helpers for Bun and Node.
  *
  * Application code should import file I/O from `./fs` (node:fs/promises — works on both).
- * Shell entrypoints should use `scripts/run-ts.sh` to execute TypeScript.
+ * Shell entrypoints should use `scripts/run-ts.sh` with an explicit STREAMER_RUNTIME.
  */
 
 /** Supported JavaScript runtimes. */
 export type RuntimeName = "bun" | "node";
 
-/** Minimal Bun global shape — avoids requiring bun-types on the Node branch. */
+/** Minimal Bun global shape — avoids requiring bun-types when typechecking under Node. */
 type BunGlobal = {
 	version: string;
 };

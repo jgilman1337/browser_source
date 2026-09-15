@@ -1,35 +1,44 @@
 {
 	"name": "browser_source",
 	"version": "1.0.0",
-	"packageManager": "bun@1.4.0",
 	"main": "src/index.ts",
 	"type": "module",
 	"engines": {
+		"node": ">=24.21.0",
 		"bun": ">=1.4.0"
 	},
 	"scripts": {
-		"preinstall": "bun -e \"if (!(process.env.npm_config_user_agent || '').includes('bun')) { console.error('This project requires Bun (https://bun.sh). Use: bun install'); process.exit(1); }\"",
-		"lint": "bun x eslint src --report-unused-disable-directives --max-warnings 0",
-		"lint:fix": "bun x eslint src --fix",
-		"format": "bun x prettier --write src/**/*.{html,js,ts,tsx,scss,md,css} --no-error-on-unmatched-pattern",
-		"format:check": "bun x prettier --check src/**/*.{html,js,ts,tsx,scss,md,css} --no-error-on-unmatched-pattern",
-		"typecheck": "bun x tsc --noEmit",
-		"docker:build": "docker build -t browser_source .",
-		"docker:run": "bun run docker:build && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" browser_source"
+		"dev": "npm run dev:node",
+		"dev:node": "tsx src/index.ts",
+		"dev:bun": "bun src/index.ts",
+		"start:node": "node --import tsx src/index.ts",
+		"start:bun": "bun src/index.ts",
+		"lint": "eslint src --report-unused-disable-directives --max-warnings 0",
+		"lint:fix": "eslint src --fix",
+		"format": "prettier --write src/**/*.{html,js,ts,tsx,scss,md,css} --no-error-on-unmatched-pattern",
+		"format:check": "prettier --check src/**/*.{html,js,ts,tsx,scss,md,css} --no-error-on-unmatched-pattern",
+		"typecheck": "tsc --noEmit",
+		"docker:build": "npm run docker:build:node",
+		"docker:build:node": "docker build -f Dockerfile.node -t browser_source:node -t browser_source:1.0.0-node -t browser_source:1.0.0 -t browser_source .",
+		"docker:build:bun": "docker build -f Dockerfile.bun -t browser_source:bun -t browser_source:1.0.0-bun .",
+		"docker:run": "npm run docker:run:node",
+		"docker:run:node": "npm run docker:build:node && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" browser_source:node",
+		"docker:run:bun": "npm run docker:build:bun && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" browser_source:bun"
 	},
 	"dependencies": {
 		"puppeteer": "^25.9.0",
 		"puppeteer-stream": "^3.0.23",
+		"tsx": "^4.21.0",
 		"zod": "^4.5.4"
 	},
 	"devDependencies": {
+		"@eslint/js": "^10.0.1",
 		"@types/node": "^26.4.1",
 		"@typescript-eslint/eslint-plugin": "^8.69.0",
 		"@typescript-eslint/parser": "^8.69.0",
 		"eslint": "^10.9.1",
 		"eslint-config-prettier": "^10.1.8",
 		"prettier": "^3.9.6",
-		"bun-types": "^1.4.0",
 		"typescript": "^6.0.3"
 	},
 	"allowScripts": {

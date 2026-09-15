@@ -3,7 +3,18 @@ set -e
 
 CONFIG_PATH="${CONFIG_PATH:-/app/config.json}"
 RUN_TS="$(dirname "$0")/run-ts.sh"
+STREAMER_RUNTIME="${STREAMER_RUNTIME:-node}"
+export STREAMER_RUNTIME
 
+echo "[entrypoint] runtime: ${STREAMER_RUNTIME}" >&2
+case "${STREAMER_RUNTIME}" in
+	node)
+		echo "[entrypoint] node: $(node --version)" >&2
+		;;
+	bun)
+		echo "[entrypoint] bun: $(bun --version)" >&2
+		;;
+esac
 echo "[entrypoint] config: ${CONFIG_PATH}" >&2
 
 # Chromium tab-audio capture needs an output device. Docker has no sound card — use a null sink.

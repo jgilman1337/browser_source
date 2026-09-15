@@ -5,7 +5,7 @@ import eslintConfigPrettier from "eslint-config-prettier";
 
 export default [
 	{
-		ignores: ["**/node_modules/**", "**/dist/**", "bun.lock"],
+		ignores: ["**/node_modules/**", "**/dist/**", "bun.lock", "package-lock.json"],
 	},
 	js.configs.recommended,
 	{
