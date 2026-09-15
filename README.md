@@ -363,9 +363,9 @@ Scripts work with `npm run` or `bun run`. Node is the default Docker runtime.
 
 | Script                      | Description                                                                      |
 | --------------------------- | -------------------------------------------------------------------------------- |
-| `npm run docker:build`      | Build the Node image (`browser_source:node`, also tagged `browser_source`)       |
-| `npm run docker:build:node` | Same as `docker:build` (`Dockerfile.node`)                                       |
-| `npm run docker:build:bun`  | Build the Bun image (`browser_source:bun`, `Dockerfile.bun`)                     |
+| `npm run docker:build`      | Build the Node image (`browser_source-node`, tagged from `VERSION` + `:latest`) |
+| `npm run docker:build:node` | Same as `docker:build` (`Dockerfile.node`)                                     |
+| `npm run docker:build:bun`  | Build the Bun image (`browser_source-bun`, `Dockerfile.bun`)                   |
 | `npm run docker:run`        | Rebuild + run the Node image (`--gpus all`, `--device /dev/dri`, `config.json`)  |
 | `npm run docker:run:bun`    | Rebuild + run the Bun image                                                      |
 
@@ -424,6 +424,7 @@ browser_source/
 ├── Dockerfile                # Symlink → Dockerfile.node
 ├── Dockerfile.node           # Node 24.21.0 production image
 ├── Dockerfile.bun            # Bun image
+├── VERSION                   # Release version (Docker tags; keep in sync with package.json)
 ├── package.json              # npm / bun scripts
 ├── package-lock.json         # npm lockfile
 ├── bun.lock                  # Bun lockfile
@@ -480,7 +481,7 @@ Use `libx264` or `h264_nvenc` in `config.json` (default is `libx264`).
 
 1. Host has NVIDIA drivers and the [container toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) installed.
 2. `docker:run` already passes `--gpus all` — without the toolkit, Docker will refuse to start the container.
-3. Verify encoders in the image: `docker run --rm browser_source ffmpeg -encoders 2>/dev/null | grep nvenc`
+3. Verify encoders in the image: `docker run --rm browser_source-node ffmpeg -encoders 2>/dev/null | grep nvenc`
 4. Fall back to `"videoCodec": "libx264"` in `config.json` if the GPU is unavailable.
 
 ### Chromium crashes

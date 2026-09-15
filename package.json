@@ -19,11 +19,11 @@
 		"format:check": "prettier --check src/**/*.{html,js,ts,tsx,scss,md,css} --no-error-on-unmatched-pattern",
 		"typecheck": "tsc --noEmit",
 		"docker:build": "npm run docker:build:node",
-		"docker:build:node": "docker build -f Dockerfile.node -t browser_source:node -t browser_source:1.0.0-node -t browser_source:1.0.0 -t browser_source .",
-		"docker:build:bun": "docker build -f Dockerfile.bun -t browser_source:bun -t browser_source:1.0.0-bun .",
+		"docker:build:node": "docker build -f Dockerfile.node -t browser_source-node:$(cat VERSION) -t browser_source-node:latest -t browser_source-node .",
+		"docker:build:bun": "docker build -f Dockerfile.bun -t browser_source-bun:$(cat VERSION) -t browser_source-bun:latest -t browser_source-bun .",
 		"docker:run": "npm run docker:run:node",
-		"docker:run:node": "npm run docker:build:node && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" browser_source:node",
-		"docker:run:bun": "npm run docker:build:bun && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" browser_source:bun"
+		"docker:run:node": "npm run docker:build:node && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" browser_source-node",
+		"docker:run:bun": "npm run docker:build:bun && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" browser_source-bun"
 	},
 	"dependencies": {
 		"puppeteer": "^25.9.0",
