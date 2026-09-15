@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { StreamerConfig } from "./config.js";
+import type { StreamerConfig } from "./config";
 
 /** FFmpeg video encoders supported by this app (validated at config load). */
 export const SUPPORTED_VIDEO_CODECS = [

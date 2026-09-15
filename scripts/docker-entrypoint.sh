@@ -2,6 +2,7 @@
 set -e
 
 CONFIG_PATH="${CONFIG_PATH:-/app/config.json}"
+RUN_TS="$(dirname "$0")/run-ts.sh"
 
 echo "[entrypoint] config: ${CONFIG_PATH}" >&2
 
@@ -23,13 +24,8 @@ if ! pulseaudio --check 2>/dev/null; then
 	fi
 fi
 
-SCREEN_ARGS=$(bun -e "
-import { loadConfig, xvfbScreenArgs } from './src/config.ts';
-const config = await loadConfig();
-process.stdout.write(xvfbScreenArgs(config));
-")
+SCREEN_ARGS=$("${RUN_TS}" scripts/xvfb-screen-args.ts)
 
 echo "[entrypoint] xvfb screen: ${SCREEN_ARGS}" >&2
 
-# Run the app directly — "bun run start" can hang silently under xvfb-run (no TTY).
-exec xvfb-run --auto-servernum --server-args="-screen 0 ${SCREEN_ARGS}" bun src/index.ts
+exec xvfb-run --auto-servernum --server-args="-screen 0 ${SCREEN_ARGS}" "${RUN_TS}" src/index.ts

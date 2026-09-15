@@ -50,8 +50,8 @@ RUN bun x puppeteer browsers install chrome
 
 # Copy the source code
 COPY src ./src
-COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
-RUN chmod +x ./scripts/docker-entrypoint.sh
+COPY scripts ./scripts
+RUN chmod +x ./scripts/docker-entrypoint.sh ./scripts/run-ts.sh
 
 # Set the entrypoint
 CMD ["./scripts/docker-entrypoint.sh"]

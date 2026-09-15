@@ -8,12 +8,12 @@
  * Only `targetUrl` and `outputUrl` are required in config.json — everything else uses defaults
  * in config_defaults.ts. See config.example.json and README.md.
  */
-import { access, readFile } from "node:fs/promises";
+import { access, readFile } from "./fs";
 import type { BrowserMimeType } from "puppeteer-stream";
 import { z } from "zod";
 
-import { DEFAULT_STREAMER_CONFIG, NAVIGATION_WAIT_UNTIL, XVFB_COLOR_DEPTH } from "./config_defaults.js";
-import { ffmpegSchema, parseFfmpegConfig, supportedEnum } from "./ffmpeg_config.js";
+import { DEFAULT_STREAMER_CONFIG, NAVIGATION_WAIT_UNTIL, XVFB_COLOR_DEPTH } from "./config_defaults";
+import { ffmpegSchema, parseFfmpegConfig, supportedEnum } from "./ffmpeg_config";
 
 /** Zod schema for puppeteer-stream `BrowserMimeType` (compile-time union, runtime string). */
 function browserMimeTypeSchema(field: string) {

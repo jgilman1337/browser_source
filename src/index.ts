@@ -23,10 +23,11 @@ import {
 	loadMediaStreamTarget,
 	navigateToTarget,
 	AUTOPLAY_LAUNCH_ARGS,
-} from "./autoplay.js";
-import { loadConfig, type StreamerConfig } from "./config.js";
-import { connectFFmpeg, stopFFmpeg } from "./ffmpeg.js";
-import { error, log } from "./logger.js";
+} from "./autoplay";
+import { loadConfig, type StreamerConfig } from "./config";
+import { connectFFmpeg, stopFFmpeg } from "./ffmpeg";
+import { error, log } from "./logger";
+import { runtimeName } from "./runtime";
 
 /** puppeteer-stream bundles puppeteer-core 24; types must come from `launch()`, not puppeteer 25. */
 type Browser = Awaited<ReturnType<typeof launch>>;
@@ -204,6 +205,7 @@ process.on("SIGTERM", () => {
 // Main entry point
 //
 // Load the configuration and start the streaming process on startup
+log(`Runtime: ${runtimeName}`);
 log(`Loading config from ${process.env.CONFIG_PATH ?? `${process.cwd()}/config.json`}...`);
 const config = await loadConfig();
 const captureRates = [

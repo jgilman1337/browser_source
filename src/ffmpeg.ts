@@ -7,9 +7,10 @@ import { spawn, type ChildProcess } from "child_process";
 import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 
-import type { StreamerConfig } from "./config.js";
-import { buildFFmpegArgs } from "./ffmpeg_config.js";
-import { error, log } from "./logger.js";
+import type { StreamerConfig } from "./config";
+import { buildFFmpegArgs } from "./ffmpeg_config";
+import { error, log } from "./logger";
+import { packageManagerRun } from "./runtime";
 
 /**
  * Callbacks into the capture pipeline so this module does not import `index.ts`
@@ -262,7 +263,7 @@ export async function connectFFmpeg(
 	const outputTarget = ffmpegArgs.at(-1);
 	if (!outputTarget || outputTarget === "undefined") {
 		throw new Error(
-			`FFmpeg output URL is missing (got "${outputTarget}"). Rebuild the image: bun run docker:build`,
+			`FFmpeg output URL is missing (got "${outputTarget}"). Rebuild the image: ${packageManagerRun()} docker:build`,
 		);
 	}
 	log(`FFmpeg: ffmpeg ${ffmpegArgs.join(" ")}`);

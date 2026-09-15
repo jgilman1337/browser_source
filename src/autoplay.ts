@@ -1,4 +1,4 @@
-import type { NavigationConfig } from "./config.js";
+import type { NavigationConfig } from "./config";
 
 type PageWithTimeouts = {
 	setDefaultNavigationTimeout(timeout: number): void;
