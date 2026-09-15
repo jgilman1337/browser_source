@@ -4,7 +4,7 @@
 	"main": "src/index.ts",
 	"type": "module",
 	"engines": {
-		"node": ">=20"
+		"node": "24.21.0"
 	},
 	"scripts": {
 		"start": "tsx src/index.ts",

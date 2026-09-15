@@ -22,7 +22,7 @@ puppeteer-stream always outputs **WebM (VP8/VP9)**. FFmpeg re-encodes (H.264 via
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) (run the streamer only)
-- [Node.js](https://nodejs.org/) ≥ 20 (host tooling: install deps, lint, format, typecheck)
+- [Node.js](https://nodejs.org/) **24.21.0** (host tooling: install deps, lint, format, typecheck)
 - [ffplay](https://ffmpeg.org/ffplay.html) (or another listener) for local SRT testing
 - **Optional:** NVIDIA GPU + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) for `h264_nvenc` (`docker:run` passes `--gpus all`)
 
@@ -398,7 +398,7 @@ browser_source/
 ## Docker details
 
 - **Base image:** `debian:bookworm-slim`
-- **Runtime:** Node.js 20 + tsx (production deps only in the image)
+- **Runtime:** Node.js 24.21.0 + tsx (production deps only in the image)
 - **Display/audio:** Xvfb (virtual display) + PulseAudio null sink (tab audio capture)
 - **Config:** `config.json` mounted at `/app/config.json` via `docker:run`
 - **Host access:** `--add-host=host.docker.internal:host-gateway`

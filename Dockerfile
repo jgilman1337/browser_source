@@ -27,10 +27,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	&& ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_vaapi \
 	&& ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_qsv
 
-# Node.js 20 LTS — runs on older x64 CPUs (SSE2+) that lack SSE4.2 (unlike Bun).
-ENV NODE_VERSION=20.18.3
+# Node.js 24.21.0 (LTS) — pinned; do not substitute Debian nodejs or another version.
+ENV NODE_VERSION=24.21.0
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
-	| tar -xJ -C /usr/local --strip-components=1
+	| tar -xJ -C /usr/local --strip-components=1 \
+	&& node --version | grep -q "v${NODE_VERSION}"
 
 # NVENC runtime: host NVIDIA driver libs are injected when running with --gpus all.
 ENV NVIDIA_VISIBLE_DEVICES=all
