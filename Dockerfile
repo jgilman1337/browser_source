@@ -7,6 +7,7 @@ FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
 	curl \
 	unzip \
+	xz-utils \
 	ca-certificates \
 	xvfb \
 	xauth \
