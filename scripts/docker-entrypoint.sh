@@ -2,6 +2,7 @@
 set -e
 
 CONFIG_PATH="${CONFIG_PATH:-/app/config.json}"
+RUN_TS="$(dirname "$0")/run-ts.sh"
 
 echo "[entrypoint] node: $(node --version)" >&2
 echo "[entrypoint] config: ${CONFIG_PATH}" >&2
@@ -24,8 +25,8 @@ if ! pulseaudio --check 2>/dev/null; then
 	fi
 fi
 
-SCREEN_ARGS=$(npx tsx scripts/xvfb-screen-args.ts)
+SCREEN_ARGS=$("${RUN_TS}" scripts/xvfb-screen-args.ts)
 
 echo "[entrypoint] xvfb screen: ${SCREEN_ARGS}" >&2
 
-exec xvfb-run --auto-servernum --server-args="-screen 0 ${SCREEN_ARGS}" npx tsx src/index.ts
+exec xvfb-run --auto-servernum --server-args="-screen 0 ${SCREEN_ARGS}" "${RUN_TS}" src/index.ts

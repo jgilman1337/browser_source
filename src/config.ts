@@ -8,7 +8,7 @@
  * Only `targetUrl` and `outputUrl` are required in config.json — everything else uses defaults
  * in config_defaults.ts. See config.example.json and README.md.
  */
-import { access, readFile } from "node:fs/promises";
+import { access, readFile } from "./fs.js";
 import type { BrowserMimeType } from "puppeteer-stream";
 import { z } from "zod";
 
