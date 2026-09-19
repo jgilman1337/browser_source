@@ -72,6 +72,28 @@ npm run docker:run
 
 Use `npm run docker:build` alone when you only want to rebuild without running. For the Bun image: `npm run docker:run:bun` (or `bun run docker:run:bun`).
 
+### Control endpoints
+
+The streamer starts a small HTTP control server on `127.0.0.1:8787` by default:
+
+```bash
+curl http://127.0.0.1:8787/api/ping
+curl -X POST http://127.0.0.1:8787/api/admin_ping \
+	-H "Authorization: Bearer $(cat admin_password)"
+```
+
+`/api/ping` is unauthenticated. `/api/admin_ping` requires the `Authorization: Bearer ...` header. Set `auth.admin_password` in `config.json` to use an explicit password; otherwise the process reads `admin_password` from its working directory and creates it with owner-only permissions when missing. The generated password is printed once at startup, so protect application logs.
+
+The server binds to loopback by default. To reach it from another machine or through Docker port publishing, set `control.host` to `0.0.0.0`, publish the configured port, and protect the network path with a firewall or reverse proxy. When using Docker, mount a persistent password file at `/app/admin_password` if the generated credential must survive container replacement:
+
+```bash
+docker run -p 127.0.0.1:8787:8787 \
+	-v "${PWD}/admin_password:/app/admin_password:ro" \
+	-v "${PWD}/config.json:/app/config.json:ro" \
+	-e CONFIG_PATH=/app/config.json \
+	browser_source-node
+```
+
 ### Reaching the host from Docker
 
 The container pushes to **`host.docker.internal`**, not `localhost`. Inside the container, `localhost` refers to the container itself.
@@ -265,6 +287,9 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 | `ffmpeg.extraArgs`           | `[]`                                                                                          |
 | `puppeteer.headless`         | `false`                                                                                       |
 | `puppeteer.args`             | Docker-safe + GPU Chromium flags (no-sandbox, ANGLE/Vulkan, VAAPI decode)                     |
+| `control.host`               | `127.0.0.1` — HTTP control bind address                                                        |
+| `control.port`               | `8787` — HTTP control port                                                                     |
+| `auth.admin_password`        | _(unset)_ — uses `admin_password`, generating it when missing                                 |
 
 Unsupported `videoCodec`, `audioCodec`, `format`, or `logLevel` values **fail at startup** with a list of allowed options.
 
@@ -416,8 +441,17 @@ browser_source/
 │   │   └── defaults.ts       # Default video, FFmpeg, and Puppeteer settings
 │   ├── platform/
 │   │   ├── fs.ts             # node:fs/promises re-export (Node + Bun)
+│   │   ├── auth.ts           # Administrative password loading and comparison
 │   │   ├── logger.ts         # Timestamped logging
 │   │   └── runtime.ts        # Runtime detection (Node vs Bun)
+│   ├── http/
+│   │   ├── admin-ping.ts       # Authenticated administrative probe
+│   │   ├── ping.ts             # Public health probe
+│   │   └── server.ts           # Express server composition and lifecycle
+│   ├── public/
+│   │   ├── app.js              # Control frontend behavior
+│   │   ├── index.html          # Control frontend markup
+│   │   └── styles.css          # Control frontend styling
 │   └── streaming/
 │       ├── ffmpeg.ts         # FFmpeg spawn, pipe, and reconnect
 │       └── ffmpeg-config.ts  # FFmpeg argument builder and codec formats

@@ -12,6 +12,7 @@
  * Config is read from config.json — see config.example.json.
  */
 import type { Readable } from "node:stream";
+import type { Server } from "node:http";
 import puppeteer from "puppeteer";
 import { getStream, launch, wss } from "puppeteer-stream";
 
@@ -28,18 +29,26 @@ import { loadConfig, type StreamerConfig } from "./config";
 import { connectFFmpeg, stopFFmpeg } from "./streaming/ffmpeg";
 import { error, log } from "./platform/logger";
 import { runtimeName } from "./platform/runtime";
+import { resolveAdminPassword } from "./platform/auth";
+import { startControlServer, stopControlServer } from "./http/server";
 
 /** puppeteer-stream bundles puppeteer-core 24; types must come from `launch()`, not puppeteer 25. */
 type Browser = Awaited<ReturnType<typeof launch>>;
 
 /** Held at module scope so SIGINT/SIGTERM handlers can clean up. */
 let browser: Browser | null = null;
+/** HTTP control server, closed before the browser during shutdown. */
+let controlServer: Server | null = null;
 /** Once true, retries stop and SIGINT/SIGTERM/`close` must not spawn another FFmpeg. */
 let shuttingDown = false;
 
 /** Tear down FFmpeg, Chromium, and puppeteer-stream's internal WebSocket server. */
 async function shutdown(): Promise<void> {
 	stopFFmpeg();
+
+	// Stop accepting administrative requests before tearing down the pipeline.
+	await stopControlServer(controlServer);
+	controlServer = null;
 
 	// Close the browser if it is not closed
 	if (browser) {
@@ -215,6 +224,11 @@ process.on("SIGTERM", () => {
 log(`Runtime: ${runtimeName}`);
 log(`Loading config from ${process.env.CONFIG_PATH ?? `${process.cwd()}/config.json`}...`);
 const config = await loadConfig();
+const adminPassword = await resolveAdminPassword(config.auth.admin_password);
+if (adminPassword.source === "generated") {
+	log(`Generated admin password: ${adminPassword.password}`);
+}
+controlServer = await startControlServer(config.control, adminPassword.password);
 const captureRates = [
 	`${config.stream.videoMbitsPerSecond} Mbps video`,
 	...(config.stream.audio ? [`${config.stream.audioKbitsPerSecond} kbps audio`] : []),

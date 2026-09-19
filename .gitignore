@@ -1,6 +1,7 @@
 node_modules
 dist
 config.json
+admin_password
 .env
 .env.*
 !.env.example

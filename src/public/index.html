@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Browser Source Control</title>
+		<link rel="stylesheet" href="/styles.css" />
+	</head>
+	<body>
+		<main class="panel">
+			<h1>Browser Source Control</h1>
+
+			<form id="control-form">
+				<label for="admin-password">Admin Password</label>
+				<input id="admin-password" name="admin-password" type="password" autocomplete="current-password" />
+
+				<div class="operation-row">
+					<label for="operation">Operation</label>
+					<select id="operation" name="operation"></select>
+					<button type="submit">Submit</button>
+				</div>
+			</form>
+
+			<section aria-labelledby="result-heading">
+				<h2 id="result-heading">Result</h2>
+				<pre id="result" aria-live="polite">Select an operation and submit.</pre>
+			</section>
+		</main>
+
+		<script src="/app.js"></script>
+	</body>
+</html>

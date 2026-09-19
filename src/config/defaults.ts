@@ -70,6 +70,12 @@ export const DEFAULT_NAVIGATION = {
 	waitUntil: "load" as (typeof NAVIGATION_WAIT_UNTIL)[number],
 };
 
+/** Default HTTP control server settings. */
+export const DEFAULT_CONTROL = {
+	host: "127.0.0.1",
+	port: 8787,
+} as const;
+
 /** Default streamer settings — `targetUrl` and `outputUrl` come from config.json. */
 export const DEFAULT_STREAMER_CONFIG = {
 	width: DEFAULT_WIDTH,
@@ -82,6 +88,8 @@ export const DEFAULT_STREAMER_CONFIG = {
 		headless: DEFAULT_PUPPETEER_HEADLESS,
 		args: [...DEFAULT_PUPPETEER_ARGS],
 	},
+	control: { ...DEFAULT_CONTROL },
+	auth: {},
 	ffmpeg: {
 		...DEFAULT_FFMPEG,
 		extraArgs: [...DEFAULT_FFMPEG.extraArgs],

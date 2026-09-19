@@ -50,6 +50,17 @@ const puppeteerSchema = z.object({
 	args: z.array(z.string()),
 });
 
+/** HTTP control server settings. */
+const controlSchema = z.object({
+	host: z.string().min(1),
+	port: z.number().int().min(1).max(65535),
+});
+
+/** Administrative authentication settings. */
+const authSchema = z.object({
+	admin_password: z.string().min(1).optional(),
+});
+
 /**
  * Fully resolved streamer config after defaults are merged.
  * This is the shape consumed by the application entrypoint, streaming modules, and
@@ -67,6 +78,8 @@ export const streamerConfigSchema = z.object({
 	frameRate: z.number().positive(),
 	stream: streamSchema,
 	puppeteer: puppeteerSchema,
+	control: controlSchema,
+	auth: authSchema,
 	ffmpeg: ffmpegSchema,
 });
 
@@ -98,7 +111,7 @@ export function getConfigPath(): string {
 /** Merge user config over DEFAULT_STREAMER_CONFIG and validate the resolved result. */
 export function applyConfigDefaults(parsed: unknown): StreamerConfig {
 	const input = parseStreamerConfigInput(parsed);
-	const { stream, puppeteer, ffmpeg, navigation, ...rest } = input;
+	const { stream, puppeteer, ffmpeg, navigation, control, auth, ...rest } = input;
 
 	const merged = {
 		...DEFAULT_STREAMER_CONFIG,
@@ -106,6 +119,8 @@ export function applyConfigDefaults(parsed: unknown): StreamerConfig {
 		navigation: { ...DEFAULT_STREAMER_CONFIG.navigation, ...navigation },
 		stream: { ...DEFAULT_STREAMER_CONFIG.stream, ...stream },
 		puppeteer: { ...DEFAULT_STREAMER_CONFIG.puppeteer, ...puppeteer },
+		control: { ...DEFAULT_STREAMER_CONFIG.control, ...control },
+		auth: { ...DEFAULT_STREAMER_CONFIG.auth, ...auth },
 		ffmpeg: parseFfmpegConfig({ ...DEFAULT_STREAMER_CONFIG.ffmpeg, ...ffmpeg }),
 	};
 

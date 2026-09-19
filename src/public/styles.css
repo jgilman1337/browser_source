@@ -1,0 +1,107 @@
+:root {
+	color-scheme: light;
+	font-family: "Courier New", monospace;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	min-height: 100vh;
+	background: #fff;
+	color: #000;
+}
+
+.panel {
+	width: min(650px, calc(100% - 32px));
+	margin: 16px auto;
+}
+
+h1,
+select,
+button {
+	border: 7px solid #000;
+	background: #fff;
+	font: inherit;
+}
+
+h1 {
+	margin: 0 0 18px;
+	padding: 2px 8px;
+	font-size: 22px;
+	font-weight: 400;
+	text-align: center;
+}
+
+label,
+h2 {
+	display: block;
+	font-size: 20px;
+	font-weight: 400;
+}
+
+input,
+select,
+button {
+	min-height: 42px;
+}
+
+input {
+	width: 100%;
+	margin: 5px 0 18px;
+	padding: 4px 8px;
+	border: 7px solid #000;
+	font: inherit;
+	font-size: 20px;
+}
+
+.operation-row {
+	display: grid;
+	grid-template-columns: 1fr 140px;
+	gap: 14px;
+	align-items: center;
+}
+
+.operation-row label {
+	grid-column: 1 / -1;
+	margin-bottom: -8px;
+}
+
+select,
+button {
+	padding: 2px 7px;
+	font-size: 20px;
+	cursor: pointer;
+}
+
+button {
+	font-weight: 400;
+}
+
+button:hover,
+button:focus-visible {
+	background: #eee;
+}
+
+h2 {
+	margin: 18px 0 8px;
+}
+
+pre {
+	min-height: 305px;
+	margin: 0;
+	padding: 14px;
+	border: 7px solid #000;
+	overflow: auto;
+	white-space: pre-wrap;
+	font-size: 17px;
+	line-height: 1.35;
+}
+
+@media (max-width: 520px) {
+	.operation-row {
+		grid-template-columns: 1fr;
+	}
+}
