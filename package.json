@@ -13,6 +13,7 @@
 		"dev:bun": "bun src/index.ts",
 		"start:node": "node --import tsx src/index.ts",
 		"start:bun": "bun src/index.ts",
+		"listen": "./scripts/listen-srt.sh",
 		"lint": "eslint src --report-unused-disable-directives --max-warnings 0",
 		"lint:fix": "eslint src --fix",
 		"format": "prettier --write src/**/*.{html,js,ts,tsx,scss,md,css} --no-error-on-unmatched-pattern",

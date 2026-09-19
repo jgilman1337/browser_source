@@ -23,11 +23,11 @@ import {
 	loadMediaStreamTarget,
 	navigateToTarget,
 	AUTOPLAY_LAUNCH_ARGS,
-} from "./autoplay";
+} from "./browser/autoplay";
 import { loadConfig, type StreamerConfig } from "./config";
-import { connectFFmpeg, stopFFmpeg } from "./ffmpeg";
-import { error, log } from "./logger";
-import { runtimeName } from "./runtime";
+import { connectFFmpeg, stopFFmpeg } from "./streaming/ffmpeg";
+import { error, log } from "./platform/logger";
+import { runtimeName } from "./platform/runtime";
 
 /** puppeteer-stream bundles puppeteer-core 24; types must come from `launch()`, not puppeteer 25. */
 type Browser = Awaited<ReturnType<typeof launch>>;
@@ -154,33 +154,40 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 		// Kick any existing media that was already on the page when navigation finished
 		await kickExistingMedia(page);
 
-		// getStream() returns a Node readable stream of WebM chunks from the page.
-		// frameSize is milliseconds per packet (inverse of frame rate).
-		// MediaRecorder wants bits/s; config is Mbit/s video and kbit/s audio.
-		const stream = await getStream(page, {
-			audio: config.stream.audio,
-			video: config.stream.video,
-			frameSize: Math.round(1000 / config.frameRate),
-			// If video is enabled, set the mime type and video bits per second
-			...(config.stream.video
-				? {
-						mimeType: config.stream.mimeType,
-						videoBitsPerSecond: Math.round(config.stream.videoMbitsPerSecond * 1_000_000),
-					}
-				: {}),
+		// A fresh stream is required for every FFmpeg process because a restarted
+		// FFmpeg cannot parse a WebM stream from the middle of the old capture.
+		const createCaptureStream = async (): Promise<Readable> => {
+			// getStream() returns a Node readable stream of WebM chunks from the page.
+			// frameSize is milliseconds per packet (inverse of frame rate).
+			// MediaRecorder wants bits/s; config is Mbit/s video and kbit/s audio.
+			const stream = await getStream(page, {
+				audio: config.stream.audio,
+				video: config.stream.video,
+				frameSize: Math.round(1000 / config.frameRate),
+				// If video is enabled, set the mime type and video bits per second
+				...(config.stream.video
+					? {
+							mimeType: config.stream.mimeType,
+							videoBitsPerSecond: Math.round(config.stream.videoMbitsPerSecond * 1_000_000),
+						}
+					: {}),
 
-			// If audio is enabled, set the audio bits per second
-			...(config.stream.audio
-				? { audioBitsPerSecond: Math.round(config.stream.audioKbitsPerSecond * 1_000) }
-				: {}),
-		});
+				// If audio is enabled, set the audio bits per second
+				...(config.stream.audio
+					? { audioBitsPerSecond: Math.round(config.stream.audioKbitsPerSecond * 1_000) }
+					: {}),
+			});
 
-		log("Browser capture initialized. Connecting to FFmpeg...");
+			log("Browser capture initialized.");
+			return stream as Readable;
+		};
 
-		watchCapture(stream as Readable);
-		await connectFFmpeg(config, stream as Readable, {
+		log("Connecting to FFmpeg...");
+
+		await connectFFmpeg(config, createCaptureStream, {
 			isShuttingDown: () => shuttingDown,
 			exitPipeline,
+			watchCapture,
 		});
 
 		log(`Streaming live to ${config.outputUrl}...`);

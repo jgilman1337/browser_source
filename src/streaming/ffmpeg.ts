@@ -1,16 +1,17 @@
 /**
  * FFmpeg child process: spawn, pipe capture into stdin, and retry on drop / timeout / refused.
  *
- * CLI args come from `ffmpeg_config.ts`. Chromium is owned by `index.ts` and is not relaunched here.
+ * CLI args come from `ffmpeg-config.ts`. Chromium is owned by the application
+ * entrypoint and is not relaunched here.
  */
 import { spawn, type ChildProcess } from "child_process";
 import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 
-import type { StreamerConfig } from "./config";
-import { buildFFmpegArgs } from "./ffmpeg_config";
-import { error, log } from "./logger";
-import { packageManagerRun } from "./runtime";
+import type { StreamerConfig } from "../config";
+import { buildFFmpegArgs } from "./ffmpeg-config";
+import { error, log } from "../platform/logger";
+import { packageManagerRun } from "../platform/runtime";
 
 /**
  * Callbacks into the capture pipeline so this module does not import `index.ts`
@@ -21,6 +22,8 @@ export type FFmpegRuntimeHooks = {
 	isShuttingDown: () => boolean;
 	/** Tear down Chromium + FFmpeg and exit the process. */
 	exitPipeline: (exitCode: number, message?: string, err?: unknown) => Promise<void>;
+	/** Observe each newly created page capture stream for browser/capture failures. */
+	watchCapture: (stream: Readable) => void;
 };
 
 /**
@@ -29,8 +32,8 @@ export type FFmpegRuntimeHooks = {
  */
 let ffmpeg: ChildProcess | null = null;
 /**
- * Page capture stream from puppeteer-stream. Kept alive across FFmpeg restarts and
- * re-piped into each new stdin. If this ends, retries are impossible and we exit.
+ * Current page capture stream from puppeteer-stream. Replaced with a fresh stream
+ * before each FFmpeg retry so the WebM header is available again.
  */
 let captureStream: Readable | null = null;
 /** Cached `buildFFmpegArgs()` result so retries spawn with the same CLI. */
@@ -49,6 +52,8 @@ let ffmpegRestarting = false;
 let ffmpegStableTimer: ReturnType<typeof setTimeout> | null = null;
 /** Set when `connectFFmpeg` runs; used by retry handlers. */
 let hooks: FFmpegRuntimeHooks | null = null;
+/** Factory for fresh page capture streams used after an FFmpeg output failure. */
+let createCaptureStream: (() => Promise<Readable>) | null = null;
 
 /**
  * After FFmpeg stays up this long, consecutive retry counts reset.
@@ -100,7 +105,7 @@ export function stopFFmpeg(): void {
 }
 
 /**
- * Spawn FFmpeg, pipe the existing capture stream into stdin, and attach retry watchers.
+ * Spawn FFmpeg, pipe the current capture stream into stdin, and attach retry watchers.
  *
  * @param config - Resolved streamer config (used by FFmpeg watchers for retries / retryAfter).
  * @throws If stdin or the capture stream is missing.
@@ -173,9 +178,9 @@ function watchFFmpeg(proc: ChildProcess, config: StreamerConfig): void {
 }
 
 /**
- * Unpipe capture, wait `ffmpeg.retryAfter` seconds, and spawn FFmpeg again.
- * Does not relaunch Chromium. Exits the process when `ffmpeg.retries` consecutive
- * failures are used up, or if the capture stream has already ended.
+ * Unpipe capture, wait `ffmpeg.retryAfter` seconds, create a fresh capture stream,
+ * and spawn FFmpeg again. Does not relaunch Chromium. Exits the process when
+ * `ffmpeg.retries` consecutive failures are used up.
  *
  * @param config - Resolved streamer config (`ffmpeg.retries`, `ffmpeg.retryAfter`, `outputUrl`).
  * @param message - Human-readable reason for this failure (included in logs / final exit).
@@ -225,14 +230,15 @@ async function handleFFmpegFailure(config: StreamerConfig, message: string, err?
 		return;
 	}
 
-	const stream = captureStream;
-	if (!stream || stream.readableEnded || stream.destroyed) {
-		ffmpegRestarting = false;
-		await exitPipeline(1, "Capture stream ended; cannot restart FFmpeg");
-		return;
-	}
-
 	try {
+		// A WebM stream cannot be replayed from its current position. Create a fresh
+		// stream so the next FFmpeg process receives the container header.
+		captureStream?.destroy();
+		if (!createCaptureStream) {
+			throw new Error("Capture stream factory is not initialized");
+		}
+		captureStream = await createCaptureStream();
+		requireHooks().watchCapture(captureStream);
 		spawnFFmpeg(config);
 		log(`Streaming live to ${config.outputUrl}...`);
 	} catch (spawnErr) {
@@ -245,19 +251,19 @@ async function handleFFmpegFailure(config: StreamerConfig, message: string, err?
 }
 
 /**
- * Build FFmpeg args, pipe `stream` into a new process, and retry according to config.
+ * Build FFmpeg args, create a page capture stream, and retry according to config.
  *
  * @param config - Fully resolved streamer config.
- * @param stream - puppeteer-stream WebM capture (kept for retries).
+ * @param captureStreamFactory - Creates a fresh puppeteer-stream WebM capture.
  * @param runtime - Shutdown / exit callbacks from `index.ts`.
  */
 export async function connectFFmpeg(
 	config: StreamerConfig,
-	stream: Readable,
+	captureStreamFactory: () => Promise<Readable>,
 	runtime: FFmpegRuntimeHooks,
 ): Promise<void> {
 	hooks = runtime;
-	captureStream = stream;
+	createCaptureStream = captureStreamFactory;
 
 	ffmpegArgs = buildFFmpegArgs(config);
 	const outputTarget = ffmpegArgs.at(-1);
@@ -269,6 +275,8 @@ export async function connectFFmpeg(
 	log(`FFmpeg: ffmpeg ${ffmpegArgs.join(" ")}`);
 
 	try {
+		captureStream = await createCaptureStream();
+		runtime.watchCapture(captureStream);
 		spawnFFmpeg(config);
 	} catch (err) {
 		// Spawn can fail before `close` (missing binary / no stdin) — same retry path as a later drop.

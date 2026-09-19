@@ -236,7 +236,7 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 | `targetUrl` | Website to capture        |
 | `outputUrl` | FFmpeg output destination |
 
-**Optional** (defaults in `src/config_defaults.ts`):
+**Optional** (defaults in `src/config/defaults.ts`):
 
 | Field                        | Default                                                                                       |
 | ---------------------------- | --------------------------------------------------------------------------------------------- |
@@ -382,6 +382,7 @@ The container only receives a read-only `config.json` mount. Source, lint rules,
 | `npm run typecheck`         | `tsc --noEmit`                       |
 | `npm run dev:node`          | Run `src/index.ts` with tsx (Node)   |
 | `npm run dev:bun`           | Run `src/index.ts` with Bun          |
+| `npm run listen`            | Persistent SRT listener with `ffplay`|
 
 Requires `npm install` or `bun install` on the host (`node_modules/`).
 
@@ -392,7 +393,7 @@ npm install
 cp config.example.json config.json
 # edit config.json
 
-ffplay -i "srt://0.0.0.0:5000?mode=listener"   # separate terminal
+npm run listen                              # separate terminal; restarts for each caller
 
 npm run docker:run
 
@@ -408,14 +409,18 @@ npm run typecheck
 browser_source/
 ├── src/
 │   ├── index.ts              # Pipeline orchestration + fail-fast shutdown
-│   ├── config.ts             # Config loader + types
-│   ├── config_defaults.ts    # Default values (720p30, ffmpeg, puppeteer)
-│   ├── ffmpeg.ts             # FFmpeg spawn, pipe, and reconnect
-│   ├── ffmpeg_config.ts      # FFmpeg arg builder (codecs, formats)
-│   ├── autoplay.ts           # Chromium autoplay helpers
-│   ├── fs.ts                 # node:fs/promises re-export (Node + Bun)
-│   ├── runtime.ts            # Runtime detection (node vs bun)
-│   └── logger.ts             # Timestamped logging
+│   ├── browser/
+│   │   └── autoplay.ts       # Chromium navigation, playback, and page helpers
+│   ├── config/
+│   │   ├── index.ts          # Config loader, validation, and types
+│   │   └── defaults.ts       # Default video, FFmpeg, and Puppeteer settings
+│   ├── platform/
+│   │   ├── fs.ts             # node:fs/promises re-export (Node + Bun)
+│   │   ├── logger.ts         # Timestamped logging
+│   │   └── runtime.ts        # Runtime detection (Node vs Bun)
+│   └── streaming/
+│       ├── ffmpeg.ts         # FFmpeg spawn, pipe, and reconnect
+│       └── ffmpeg-config.ts  # FFmpeg argument builder and codec formats
 ├── scripts/
 │   ├── docker-entrypoint.sh  # PulseAudio null sink + Xvfb + app start
 │   └── run-ts.sh             # STREAMER_RUNTIME=node|bun TypeScript launcher
