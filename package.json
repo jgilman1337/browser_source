@@ -23,8 +23,8 @@
 		"docker:build:node": "docker build -f Dockerfile.node -t browser_source-node:$(cat VERSION) -t browser_source-node:latest -t browser_source-node .",
 		"docker:build:bun": "docker build -f Dockerfile.bun -t browser_source-bun:$(cat VERSION) -t browser_source-bun:latest -t browser_source-bun .",
 		"docker:run": "npm run docker:run:node",
-		"docker:run:node": "npm run docker:build:node && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" browser_source-node",
-		"docker:run:bun": "npm run docker:build:bun && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -e CONFIG_PATH=/app/config.json -v \"${PWD}/config.json:/app/config.json:ro\" browser_source-bun"
+		"docker:run:node": "npm run docker:build:node && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -p 127.0.0.1:8787:8787 -e CONFIG_PATH=/app/config.json -e CONTROL_HOST=0.0.0.0 -v \"${PWD}/config.json:/app/config.json:ro\" browser_source-node",
+		"docker:run:bun": "npm run docker:build:bun && docker run --rm -it --init --gpus all --device /dev/dri:/dev/dri --shm-size=2g --add-host=host.docker.internal:host-gateway -p 127.0.0.1:8787:8787 -e CONFIG_PATH=/app/config.json -e CONTROL_HOST=0.0.0.0 -v \"${PWD}/config.json:/app/config.json:ro\" browser_source-bun"
 	},
 	"dependencies": {
 		"express": "^5.2.1",

@@ -68,7 +68,7 @@ ffplay -i "srt://0.0.0.0:5000?mode=listener"
 npm run docker:run
 ```
 
-`docker:run` rebuilds the **Node** image, then starts the container. It mounts `config.json` at `/app/config.json` (read-only). Logs stream to your terminal — look for `Output: srt://...` at startup. Press `Ctrl+C` to stop; the container is removed automatically (`--rm`).
+`docker:run` rebuilds the **Node** image, then starts the container. It mounts `config.json` at `/app/config.json` (read-only) and publishes the control frontend/API at `http://127.0.0.1:8787`. Logs stream to your terminal — look for `Output: srt://...` at startup. Press `Ctrl+C` to stop; the container is removed automatically (`--rm`).
 
 Use `npm run docker:build` alone when you only want to rebuild without running. For the Bun image: `npm run docker:run:bun` (or `bun run docker:run:bun`).
 
@@ -78,13 +78,13 @@ The streamer starts a small HTTP control server on `127.0.0.1:8787` by default:
 
 ```bash
 curl http://127.0.0.1:8787/api/ping
-curl -X POST http://127.0.0.1:8787/api/admin_ping \
+curl http://127.0.0.1:8787/api/admin_ping \
 	-H "Authorization: Bearer $(cat admin_password)"
 ```
 
 `/api/ping` is unauthenticated. `/api/admin_ping` requires the `Authorization: Bearer ...` header. Set `auth.admin_password` in `config.json` to use an explicit password; otherwise the process reads `admin_password` from its working directory and creates it with owner-only permissions when missing. The generated password is printed once at startup, so protect application logs.
 
-The server binds to loopback by default. To reach it from another machine or through Docker port publishing, set `control.host` to `0.0.0.0`, publish the configured port, and protect the network path with a firewall or reverse proxy. When using Docker, mount a persistent password file at `/app/admin_password` if the generated credential must survive container replacement:
+The server binds to loopback by default. The built-in Docker runners override this to bind inside the container and publish only to host loopback (`127.0.0.1:8787`). To reach it from another machine, explicitly publish the port externally, set `control.host` to `0.0.0.0`, and protect the network path with a firewall or reverse proxy. When using Docker, mount a persistent password file at `/app/admin_password` if the generated credential must survive container replacement:
 
 ```bash
 docker run -p 127.0.0.1:8787:8787 \
@@ -474,6 +474,7 @@ browser_source/
 
 - **Base image:** `debian:trixie-slim`
 - **Runtime:** Node.js 24.21.0 + tsx by default (`Dockerfile.node`); optional Bun image (`Dockerfile.bun`). Production deps only. Set `STREAMER_RUNTIME` in the image so `run-ts.sh` does not auto-detect.
+- **Build cache:** Docker BuildKit cache mounts reuse npm/Bun package downloads and Puppeteer’s Chrome download across builds; dependency layers still invalidate when their manifests or lockfiles change.
 - **Display/audio:** Xvfb (virtual display) + PulseAudio null sink (tab audio capture)
 - **Config:** `config.json` mounted at `/app/config.json` via `docker:run`
 - **Host access:** `--add-host=host.docker.internal:host-gateway`

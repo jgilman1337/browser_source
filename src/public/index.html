@@ -12,7 +12,12 @@
 
 			<form id="control-form">
 				<label for="admin-password">Admin Password</label>
-				<input id="admin-password" name="admin-password" type="password" autocomplete="current-password" />
+				<div class="password-field">
+					<input id="admin-password" name="admin-password" type="password" autocomplete="current-password" />
+					<button id="password-toggle" class="password-toggle" type="button" aria-label="Show admin password">
+						<span class="eye-icon" aria-hidden="true"></span>
+					</button>
+				</div>
 
 				<div class="operation-row">
 					<label for="operation">Operation</label>

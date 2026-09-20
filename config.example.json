@@ -33,6 +33,13 @@
 			"--allow-file-access-from-files"
 		]
 	},
+	"control": {
+		"host": "127.0.0.1",
+		"port": 8787
+	},
+	"auth": {
+		"admin_password": "replace-with-a-strong-password"
+	},
 	"ffmpeg": {
 		"videoCodec": "libx264",
 		"audioCodec": "aac",

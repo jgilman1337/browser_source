@@ -1,6 +1,8 @@
 :root {
 	color-scheme: light;
-	font-family: "Courier New", monospace;
+	font-family: Arial, Helvetica, sans-serif;
+	font-size: 16px;
+	--border: 4px solid #000;
 }
 
 * {
@@ -15,22 +17,22 @@ body {
 }
 
 .panel {
-	width: min(650px, calc(100% - 32px));
-	margin: 16px auto;
+	width: min(900px, calc(100% - 24px));
+	margin: 10px auto;
 }
 
 h1,
 select,
-button {
-	border: 7px solid #000;
+button:not(.password-toggle) {
+	border: var(--border);
 	background: #fff;
 	font: inherit;
 }
 
 h1 {
-	margin: 0 0 18px;
+	margin: 0 0 10px;
 	padding: 2px 8px;
-	font-size: 22px;
+	font-size: 16px;
 	font-weight: 400;
 	text-align: center;
 }
@@ -38,29 +40,83 @@ h1 {
 label,
 h2 {
 	display: block;
-	font-size: 20px;
+	font-size: 16px;
 	font-weight: 400;
 }
 
 input,
 select,
-button {
+button:not(.password-toggle) {
 	min-height: 42px;
 }
 
 input {
 	width: 100%;
-	margin: 5px 0 18px;
+	margin: 3px 0 10px;
 	padding: 4px 8px;
-	border: 7px solid #000;
+	border: var(--border);
 	font: inherit;
-	font-size: 20px;
+	font-size: 16px;
+}
+
+.password-field {
+	display: flex;
+	align-items: center;
+	margin: 3px 0 10px;
+	border: var(--border);
+	background: #fff;
+}
+
+.password-field input {
+	flex: 1;
+	width: auto;
+	min-width: 0;
+	min-height: 42px;
+	margin: 0;
+	padding: 4px 8px;
+	padding-right: 4px;
+	border: 0;
+	background: transparent;
+}
+
+.password-toggle {
+	display: grid;
+	flex-shrink: 0;
+	width: 42px;
+	min-height: 42px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	place-items: center;
+	background: transparent;
+	cursor: pointer;
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+	background: transparent;
+}
+
+.password-toggle:focus-visible {
+	outline: 2px solid #000;
+	outline-offset: -2px;
+}
+
+.eye-icon {
+	display: block;
+	width: 20px;
+	height: 20px;
+	background: url("/icons/eye.svg") center / contain no-repeat;
+}
+
+.password-toggle.is-visible .eye-icon {
+	background-image: url("/icons/eye-slash.svg");
 }
 
 .operation-row {
 	display: grid;
 	grid-template-columns: 1fr 140px;
-	gap: 14px;
+	gap: 8px;
 	align-items: center;
 }
 
@@ -70,33 +126,33 @@ input {
 }
 
 select,
-button {
+button:not(.password-toggle) {
 	padding: 2px 7px;
-	font-size: 20px;
+	font-size: 16px;
 	cursor: pointer;
 }
 
-button {
+button:not(.password-toggle) {
 	font-weight: 400;
 }
 
-button:hover,
-button:focus-visible {
+button:not(.password-toggle):hover,
+button:not(.password-toggle):focus-visible {
 	background: #eee;
 }
 
 h2 {
-	margin: 18px 0 8px;
+	margin: 10px 0 4px;
 }
 
 pre {
 	min-height: 305px;
 	margin: 0;
 	padding: 14px;
-	border: 7px solid #000;
+	border: var(--border);
 	overflow: auto;
 	white-space: pre-wrap;
-	font-size: 17px;
+	font-size: 12px;
 	line-height: 1.35;
 }
 

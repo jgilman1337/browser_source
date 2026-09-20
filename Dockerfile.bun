@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 # Bun image (from the `master` branch head). Prefer Dockerfile.node for production;
 # puppeteer-stream is Node-oriented and Bun support is compatibility-tested.
 # Use debian slim for glibc compatibility (essential for Chrome)
@@ -46,10 +48,12 @@ ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
 
 # Install production dependencies only — lint/format/typecheck run on the host.
 COPY package.json bun.lock bunfig.toml tsconfig.json ./
-RUN bun install --frozen-lockfile --production
+RUN --mount=type=cache,id=browser-source-bun-install,target=/root/.bun/install/cache \
+	bun install --frozen-lockfile --production
 
 # Ensure the Chrome binary exists (postinstall can skip download in some environments).
-RUN bun x puppeteer browsers install chrome
+RUN --mount=type=cache,id=browser-source-puppeteer,target=/root/.cache/puppeteer \
+	bun x puppeteer browsers install chrome
 
 # Copy the source code
 COPY src ./src

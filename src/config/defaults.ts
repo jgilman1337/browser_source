@@ -72,7 +72,7 @@ export const DEFAULT_NAVIGATION = {
 
 /** Default HTTP control server settings. */
 export const DEFAULT_CONTROL = {
-	host: "127.0.0.1",
+	host: process.env.CONTROL_HOST ?? "127.0.0.1",
 	port: 8787,
 } as const;
 

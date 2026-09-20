@@ -12,6 +12,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { error, log } from "../platform/logger";
 import { registerAdminPingEndpoint } from "./admin-ping";
 import { registerPingEndpoint } from "./ping";
+import { registerUptimeEndpoint } from "./uptime";
 
 /** HTTP control server settings. */
 export type ControlServerConfig = {
@@ -28,6 +29,16 @@ export async function startControlServer(config: ControlServerConfig, password: 
 	const app = express();
 	// Avoid exposing the framework implementation in response headers.
 	app.disable("x-powered-by");
+	// Log completed requests without recording credentials, headers, or bodies.
+	app.use((request, response, next) => {
+		// Log a compact Nginx-style request line after the response finishes.
+		response.once("finish", () => {
+			const requestLine = `${request.method} ${request.originalUrl} HTTP/${request.httpVersion}`;
+			log(`${request.ip} - - "${requestLine}" ${response.statusCode}`);
+		});
+		// Continue processing the request through the remaining middleware.
+		next();
+	});
 	// Parse small request bodies so bodyless endpoints can reject unexpected input.
 	app.use(express.raw({ type: "*/*", limit: "8kb" }));
 
@@ -35,6 +46,8 @@ export async function startControlServer(config: ControlServerConfig, password: 
 	const router = express.Router();
 	// Register the unauthenticated health endpoint.
 	registerPingEndpoint(router);
+	// Register the public process uptime endpoint.
+	registerUptimeEndpoint(router);
 	// Register the authenticated administrative endpoint.
 	registerAdminPingEndpoint(router, password);
 	// Mount all control endpoints below the frontend-friendly API namespace.
@@ -45,8 +58,14 @@ export async function startControlServer(config: ControlServerConfig, password: 
 	// Return explicit method and path errors for unsupported control requests.
 	app.use((request, response) => {
 		// Report the supported method when a known endpoint uses the wrong method.
-		if (request.path === "/api/ping" || request.path === "/api/admin_ping") {
-			response.setHeader("allow", request.path === "/api/ping" ? "GET" : "POST");
+		const allowByPath: Record<string, string> = {
+			"/api/ping": "GET",
+			"/api/uptime": "GET",
+			"/api/admin_ping": "GET",
+		};
+		const allowed = allowByPath[request.path];
+		if (allowed) {
+			response.setHeader("allow", allowed);
 			response.status(405).json({ error: "method not allowed" });
 			return;
 		}

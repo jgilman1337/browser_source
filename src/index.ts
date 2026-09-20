@@ -30,6 +30,7 @@ import { connectFFmpeg, stopFFmpeg } from "./streaming/ffmpeg";
 import { error, log } from "./platform/logger";
 import { runtimeName } from "./platform/runtime";
 import { resolveAdminPassword } from "./platform/auth";
+import "./platform/uptime";
 import { startControlServer, stopControlServer } from "./http/server";
 
 /** puppeteer-stream bundles puppeteer-core 24; types must come from `launch()`, not puppeteer 25. */

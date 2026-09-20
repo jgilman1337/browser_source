@@ -21,13 +21,7 @@ function getBearerToken(request: Request): string | undefined {
 /** Register the authenticated administrative probe endpoint. */
 export function registerAdminPingEndpoint(router: Router, password: string): void {
 	// Register the administrative route with its startup-resolved password.
-	router.post("/admin_ping", (request, response) => {
-		// Reject request bodies because this endpoint has no input payload.
-		if (Buffer.isBuffer(request.body) && request.body.length > 0) {
-			response.status(413).json({ error: "request body not allowed" });
-			return;
-		}
-
+	router.get("/admin_ping", (request, response) => {
 		// Read and validate the bearer credential before returning the probe response.
 		const token = getBearerToken(request);
 		if (!token || !adminPasswordsMatch(token, password)) {

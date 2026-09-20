@@ -3,22 +3,38 @@
 // Cache the form controls used by the frontend.
 const form = document.querySelector("#control-form");
 const passwordInput = document.querySelector("#admin-password");
+const passwordToggle = document.querySelector("#password-toggle");
 const operationInput = document.querySelector("#operation");
 const result = document.querySelector("#result");
 
 // Define the list of supported control operations.
 const supportedOperations = {
+	// Public endpoints.
 	ping: "GET",
-	admin_ping: "POST",
+	uptime: "GET",
+
+	// Admin endpoints.
+	admin_ping: "GET",
 };
 
 // Populate the operation menu from the supported backend routes.
-Object.entries(supportedOperations).forEach(([path, method]) => {
+Object.entries(supportedOperations).sort(([a], [b]) => a.localeCompare(b)).forEach(([path, method]) => {
 	// Create a menu option formatted as "METHOD /path".
 	const option = document.createElement("option");
 	option.value = path;
 	option.textContent = `${method} /${path}`;
 	operationInput.append(option);
+});
+
+// Toggle the password field between masked and visible text.
+passwordToggle.addEventListener("click", () => {
+	// Determine the next visibility state from the current input type.
+	const isVisible = passwordInput.type === "text";
+	passwordInput.type = isVisible ? "password" : "text";
+	// Swap the eye icon to match the new password visibility state.
+	passwordToggle.classList.toggle("is-visible", !isVisible);
+	// Keep the accessible label synchronized with the next action.
+	passwordToggle.setAttribute("aria-label", isVisible ? "Show admin password" : "Hide admin password");
 });
 
 // Submit the selected control operation to the backend API.
@@ -48,9 +64,9 @@ form.addEventListener("submit", async (event) => {
 		// Show the endpoint, HTTP status, and backend response in a readable format.
 		result.textContent = JSON.stringify(
 			{
+				timestamp: new Date().toISOString(),
 				endpoint,
 				status: response.status,
-				timestamp: new Date().toISOString(),
 				response: body,
 			},
 			null,
