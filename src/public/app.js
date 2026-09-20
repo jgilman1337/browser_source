@@ -15,16 +15,19 @@ const supportedOperations = {
 
 	// Admin endpoints.
 	admin_ping: "GET",
+	reload: "POST",
 };
 
 // Populate the operation menu from the supported backend routes.
-Object.entries(supportedOperations).sort(([a], [b]) => a.localeCompare(b)).forEach(([path, method]) => {
-	// Create a menu option formatted as "METHOD /path".
-	const option = document.createElement("option");
-	option.value = path;
-	option.textContent = `${method} /${path}`;
-	operationInput.append(option);
-});
+Object.entries(supportedOperations)
+	.sort(([a], [b]) => a.localeCompare(b))
+	.forEach(([path, method]) => {
+		// Create a menu option formatted as "METHOD /path".
+		const option = document.createElement("option");
+		option.value = path;
+		option.textContent = `${method} /${path}`;
+		operationInput.append(option);
+	});
 
 // Toggle the password field between masked and visible text.
 passwordToggle.addEventListener("click", () => {
@@ -45,7 +48,7 @@ form.addEventListener("submit", async (event) => {
 	// Build the endpoint and authentication headers for the selected operation.
 	const operation = operationInput.value;
 	const method = supportedOperations[operation];
-	const isAdminOperation = operation === "admin_ping";
+	const isAdminOperation = operation === "admin_ping" || operation === "reload";
 	const endpoint = `/api/${operation}`;
 	const headers = isAdminOperation ? { Authorization: `Bearer ${passwordInput.value}` } : {};
 

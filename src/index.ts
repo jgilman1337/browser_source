@@ -6,8 +6,8 @@
  *   2. puppeteer-stream captures page audio/video as WebM
  *   3. FFmpeg encodes and pushes to outputUrl (SRT, RTMP, file, etc.)
  *   4. If FFmpeg dies (drop, timeout, connection refused), it is respawned
- *      `ffmpeg.retries` times, waiting `ffmpeg.retryAfter` seconds between attempts.
- *      Chromium capture is left running so a listener restart does not reload the page.
+ *      indefinitely, waiting `ffmpeg.retryAfter` seconds between attempts.
+ *      Chromium stays up so a listener restart does not reload the page.
  *
  * Config is read from config.json — see config.example.json.
  */
@@ -24,14 +24,14 @@ import {
 	loadMediaStreamTarget,
 	navigateToTarget,
 	AUTOPLAY_LAUNCH_ARGS,
-} from "./browser/autoplay";
-import { loadConfig, type StreamerConfig } from "./config";
-import { connectFFmpeg, stopFFmpeg } from "./streaming/ffmpeg";
-import { error, log } from "./platform/logger";
-import { runtimeName } from "./platform/runtime";
-import { resolveAdminPassword } from "./platform/auth";
-import "./platform/uptime";
-import { startControlServer, stopControlServer } from "./http/server";
+} from "@/browser/autoplay";
+import { loadConfig, type StreamerConfig } from "@/config";
+import { error, log } from "@/platform/logger";
+import { runtimeName } from "@/platform/runtime";
+import { resolveAdminPassword } from "@/platform/auth";
+import "@/platform/uptime";
+import { startControlServer, stopControlServer } from "@/http/server";
+import { PersistentFFmpegRelay } from "@/streaming/relay";
 
 /** puppeteer-stream bundles puppeteer-core 24; types must come from `launch()`, not puppeteer 25. */
 type Browser = Awaited<ReturnType<typeof launch>>;
@@ -40,16 +40,25 @@ type Browser = Awaited<ReturnType<typeof launch>>;
 let browser: Browser | null = null;
 /** HTTP control server, closed before the browser during shutdown. */
 let controlServer: Server | null = null;
+/** Persistent media relay, which owns the uninterrupted downstream output. */
+let mediaRelay: PersistentFFmpegRelay | null = null;
 /** Once true, retries stop and SIGINT/SIGTERM/`close` must not spawn another FFmpeg. */
 let shuttingDown = false;
+/** True while an intentional page reload is replacing the current capture. */
+let reloadingPage = false;
+/** Current capture stream; stale streams must not terminate the live pipeline. */
+let activeCapture: Readable | null = null;
+/** Assigned after the capture page exists so the HTTP server can trigger reloads. */
+let reloadPage: (() => Promise<void>) | null = null;
 
 /** Tear down FFmpeg, Chromium, and puppeteer-stream's internal WebSocket server. */
 async function shutdown(): Promise<void> {
-	stopFFmpeg();
-
 	// Stop accepting administrative requests before tearing down the pipeline.
 	await stopControlServer(controlServer);
 	controlServer = null;
+	await mediaRelay?.stop();
+	mediaRelay = null;
+	activeCapture = null;
 
 	// Close the browser if it is not closed
 	if (browser) {
@@ -92,6 +101,7 @@ async function exitPipeline(exitCode: number, message?: string, err?: unknown): 
  * FFmpeg failures are retried in `ffmpeg.ts`.
  */
 function watchCapture(stream: Readable): void {
+	activeCapture = stream;
 	// If the browser is disconnected unexpectedly, exit the process
 	browser?.on("disconnected", () => {
 		void exitPipeline(1, "Browser disconnected unexpectedly");
@@ -99,6 +109,10 @@ function watchCapture(stream: Readable): void {
 
 	// If the capture stream errors, exit — except EPIPE, which means FFmpeg's stdin closed
 	stream.on("error", (err: NodeJS.ErrnoException) => {
+		// Ignore errors caused by intentionally replacing the browser capture during reload.
+		if (reloadingPage || stream !== activeCapture) {
+			return;
+		}
 		if (err.code === "EPIPE") {
 			return;
 		}
@@ -192,13 +206,39 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 			return stream as Readable;
 		};
 
-		log("Connecting to FFmpeg...");
+		// Replace the page while the relay displays its generated loading stream.
+		reloadPage = async (): Promise<void> => {
+			if (reloadingPage) {
+				throw new Error("page reload already in progress");
+			}
+			reloadingPage = true;
+			try {
+				if (!mediaRelay) {
+					throw new Error("media relay is not initialized");
+				}
+				await mediaRelay.switchToFallback();
+				if (config.embedAsMedia) {
+					await loadMediaStreamTarget(page, config.targetUrl, config.embedAsMedia, config.navigation);
+				} else {
+					await navigateToTarget(page, config.targetUrl, config.navigation);
+				}
+				if (config.clickPlayTarget) {
+					await clickPlayTarget(page, config.clickPlayTarget);
+				}
+				await kickExistingMedia(page);
+				await mediaRelay.replaceBrowserCapture(await createCaptureStream());
+			} finally {
+				reloadingPage = false;
+			}
+		};
 
-		await connectFFmpeg(config, createCaptureStream, {
+		log("Connecting to persistent FFmpeg relay...");
+		mediaRelay = new PersistentFFmpegRelay(config, {
 			isShuttingDown: () => shuttingDown,
-			exitPipeline,
 			watchCapture,
+			createCaptureStream,
 		});
+		await mediaRelay.start(await createCaptureStream());
 
 		log(`Streaming live to ${config.outputUrl}...`);
 	} catch (err) {
@@ -229,7 +269,14 @@ const adminPassword = await resolveAdminPassword(config.auth.admin_password);
 if (adminPassword.source === "generated") {
 	log(`Generated admin password: ${adminPassword.password}`);
 }
-controlServer = await startControlServer(config.control, adminPassword.password);
+controlServer = await startControlServer(config.control, adminPassword.password, {
+	reload: async () => {
+		if (!reloadPage) {
+			throw new Error("browser page is not ready");
+		}
+		await reloadPage();
+	},
+});
 const captureRates = [
 	`${config.stream.videoMbitsPerSecond} Mbps video`,
 	...(config.stream.audio ? [`${config.stream.audioKbitsPerSecond} kbps audio`] : []),

@@ -80,9 +80,11 @@ The streamer starts a small HTTP control server on `127.0.0.1:8787` by default:
 curl http://127.0.0.1:8787/api/ping
 curl http://127.0.0.1:8787/api/admin_ping \
 	-H "Authorization: Bearer $(cat admin_password)"
+curl -X POST http://127.0.0.1:8787/api/reload \
+	-H "Authorization: Bearer $(cat admin_password)"
 ```
 
-`/api/ping` is unauthenticated. `/api/admin_ping` requires the `Authorization: Bearer ...` header. Set `auth.admin_password` in `config.json` to use an explicit password; otherwise the process reads `admin_password` from its working directory and creates it with owner-only permissions when missing. The generated password is printed once at startup, so protect application logs.
+`/api/ping` is unauthenticated. `/api/admin_ping` and `POST /api/reload` require the `Authorization: Bearer ...` header. Reload switches the persistent output to an FFmpeg-generated loading screen, reloads the Chromium page, and switches back after fresh browser frames arrive. Set `auth.admin_password` in `config.json` to use an explicit password; otherwise the process reads `admin_password` from its working directory and creates it with owner-only permissions when missing. The generated password is printed once at startup, so protect application logs.
 
 The server binds to loopback by default. The built-in Docker runners override this to bind inside the container and publish only to host loopback (`127.0.0.1:8787`). To reach it from another machine, explicitly publish the port externally, set `control.host` to `0.0.0.0`, and protect the network path with a firewall or reverse proxy. When using Docker, mount a persistent password file at `/app/admin_password` if the generated credential must survive container replacement:
 
@@ -178,10 +180,10 @@ remove `runtime: nvidia` and the NVIDIA environment variables.
     Replace `<CHANNEL-ID>` with the UUID from step 4. Keep the suffix
     `.stream,mode:publish` exactly as Restreamer supplies it.
 
-    | Where browser_source runs              | Host in `outputUrl`                         |
-    | -------------------------------------- | ------------------------------------------- |
+    | Where browser_source runs               | Host in `outputUrl`                          |
+    | --------------------------------------- | -------------------------------------------- |
     | Same Docker Compose stack as Restreamer | `restreamer` (service name, not `localhost`) |
-    | Another machine or outside Compose      | Restreamer host IP or hostname              |
+    | Another machine or outside Compose      | Restreamer host IP or hostname               |
 
     Restreamer’s UI may show a public address like
     `srt://203.0.113.1:6000?mode=caller`. Use that IP only when browser_source
@@ -282,13 +284,13 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 | `ffmpeg.logLevel`            | `warning`                                                                                     |
 | `ffmpeg.stats`               | `true`                                                                                        |
 | `ffmpeg.statsPeriod`         | `5`                                                                                           |
-| `ffmpeg.retries`             | `10` — extra FFmpeg launches after a drop, timeout, or connection refused                     |
-| `ffmpeg.retryAfter`          | `5` — seconds to wait before each FFmpeg retry                                                |
+| `ffmpeg.retries`             | `10` — unused; the persistent compositor reconnects indefinitely                             |
+| `ffmpeg.retryAfter`          | `5` — seconds to wait before each output reconnect                                            |
 | `ffmpeg.extraArgs`           | `[]`                                                                                          |
 | `puppeteer.headless`         | `false`                                                                                       |
 | `puppeteer.args`             | Docker-safe + GPU Chromium flags (no-sandbox, ANGLE/Vulkan, VAAPI decode)                     |
-| `control.host`               | `127.0.0.1` — HTTP control bind address                                                        |
-| `control.port`               | `8787` — HTTP control port                                                                     |
+| `control.host`               | `127.0.0.1` — HTTP control bind address                                                       |
+| `control.port`               | `8787` — HTTP control port                                                                    |
 | `auth.admin_password`        | _(unset)_ — uses `admin_password`, generating it when missing                                 |
 
 Unsupported `videoCodec`, `audioCodec`, `format`, or `logLevel` values **fail at startup** with a list of allowed options.
@@ -386,28 +388,28 @@ Scripts work with `npm run` or `bun run`. Node is the default Docker runtime.
 
 ### Docker (run the streamer only)
 
-| Script                      | Description                                                                      |
-| --------------------------- | -------------------------------------------------------------------------------- |
+| Script                      | Description                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------- |
 | `npm run docker:build`      | Build the Node image (`browser_source-node`, tagged from `VERSION` + `:latest`) |
-| `npm run docker:build:node` | Same as `docker:build` (`Dockerfile.node`)                                     |
-| `npm run docker:build:bun`  | Build the Bun image (`browser_source-bun`, `Dockerfile.bun`)                   |
-| `npm run docker:run`        | Rebuild + run the Node image (`--gpus all`, `--device /dev/dri`, `config.json`)  |
-| `npm run docker:run:bun`    | Rebuild + run the Bun image                                                      |
+| `npm run docker:build:node` | Same as `docker:build` (`Dockerfile.node`)                                      |
+| `npm run docker:build:bun`  | Build the Bun image (`browser_source-bun`, `Dockerfile.bun`)                    |
+| `npm run docker:run`        | Rebuild + run the Node image (`--gpus all`, `--device /dev/dri`, `config.json`) |
+| `npm run docker:run:bun`    | Rebuild + run the Bun image                                                     |
 
 The container only receives a read-only `config.json` mount. Source, lint rules, and formatter config are baked into the image at build time and are not modified at runtime.
 
 ### Host tooling (lint / format / typecheck)
 
-| Script                      | Description                          |
-| --------------------------- | ------------------------------------ |
-| `npm run lint`              | ESLint                               |
-| `npm run lint:fix`          | ESLint with auto-fix                 |
-| `npm run format`            | Prettier (write)                     |
-| `npm run format:check`      | Prettier (check)                     |
-| `npm run typecheck`         | `tsc --noEmit`                       |
-| `npm run dev:node`          | Run `src/index.ts` with tsx (Node)   |
-| `npm run dev:bun`           | Run `src/index.ts` with Bun          |
-| `npm run listen`            | Persistent SRT listener with `ffplay`|
+| Script                 | Description                           |
+| ---------------------- | ------------------------------------- |
+| `npm run lint`         | ESLint                                |
+| `npm run lint:fix`     | ESLint with auto-fix                  |
+| `npm run format`       | Prettier (write)                      |
+| `npm run format:check` | Prettier (check)                      |
+| `npm run typecheck`    | `tsc --noEmit`                        |
+| `npm run dev:node`     | Run `src/index.ts` with tsx (Node)    |
+| `npm run dev:bun`      | Run `src/index.ts` with Bun           |
+| `npm run listen`       | Persistent SRT listener with `ffplay` |
 
 Requires `npm install` or `bun install` on the host (`node_modules/`).
 
@@ -498,7 +500,7 @@ browser_source/
 
 ### FFmpeg connection dropped / refused / timeout
 
-The browser capture stays up; only FFmpeg is restarted. Set `ffmpeg.retries` (extra launches after a failure) and `ffmpeg.retryAfter` (seconds to wait). Consecutive failures reset after FFmpeg has stayed up for 15 seconds. When retries are exhausted, the process exits.
+The browser page stays up; only the output FFmpeg compositor is restarted. Reconnects continue indefinitely until the destination accepts packets again. Set `ffmpeg.retryAfter` (seconds to wait between attempts). The process does not exit on SRT/RTMP drops.
 
 ### Blocky video / compression artifacts
 

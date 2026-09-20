@@ -5,7 +5,7 @@
  * or configuration while the process is running does not rotate access.
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { readFile, writeFile } from "./fs";
+import { readFile, writeFile } from "@/platform/fs";
 
 /** Name of the fallback credential file in the process working directory. */
 export const ADMIN_PASSWORD_FILE = "admin_password";

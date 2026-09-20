@@ -4,6 +4,9 @@
 		"module": "ESNext",
 		"target": "ESNext",
 		"moduleResolution": "bundler",
+		"paths": {
+			"@/*": ["./src/*"]
+		},
 		"strict": true,
 		"skipLibCheck": true,
 		"esModuleInterop": true,

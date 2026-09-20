@@ -1,22 +1,10 @@
 /**
  * Authenticated administrative probe endpoint.
  */
-import type { Request, Router } from "express";
+import type { Router } from "express";
 
-import { adminPasswordsMatch } from "../platform/auth";
-
-/** Return the bearer token from an Authorization header, if correctly shaped. */
-function getBearerToken(request: Request): string | undefined {
-	// Read the standard bearer-token authorization header.
-	const header = request.get("authorization");
-	if (!header?.startsWith("Bearer ")) {
-		return undefined;
-	}
-
-	// Reject an empty bearer token while preserving the supplied token otherwise.
-	const token = header.slice("Bearer ".length);
-	return token.length > 0 ? token : undefined;
-}
+import { adminPasswordsMatch } from "@/platform/auth";
+import { getBearerToken } from "@/http/utils";
 
 /** Register the authenticated administrative probe endpoint. */
 export function registerAdminPingEndpoint(router: Router, password: string): void {

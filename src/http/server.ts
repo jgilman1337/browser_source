@@ -9,10 +9,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type NextFunction, type Request, type Response } from "express";
 
-import { error, log } from "../platform/logger";
-import { registerAdminPingEndpoint } from "./admin-ping";
-import { registerPingEndpoint } from "./ping";
-import { registerUptimeEndpoint } from "./uptime";
+import { error, log } from "@/platform/logger";
+import { registerAdminPingEndpoint } from "@/http/admin-ping";
+import { registerAdminReloadEndpoint } from "@/http/admin-reload";
+import { registerPingEndpoint } from "@/http/ping";
+import { registerUptimeEndpoint } from "@/http/uptime";
 
 /** HTTP control server settings. */
 export type ControlServerConfig = {
@@ -20,11 +21,20 @@ export type ControlServerConfig = {
 	port: number;
 };
 
+/** Administrative callbacks exposed by the control server. */
+export type ControlServerHandlers = {
+	reload: () => Promise<void>;
+};
+
 /** Absolute path to the bundled static frontend directory. */
 const PUBLIC_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), "../public");
 
 /** Start the HTTP control server and return its closeable server instance. */
-export async function startControlServer(config: ControlServerConfig, password: string): Promise<Server> {
+export async function startControlServer(
+	config: ControlServerConfig,
+	password: string,
+	handlers: ControlServerHandlers,
+): Promise<Server> {
 	// Create the Express application that owns the control endpoint lifecycle.
 	const app = express();
 	// Avoid exposing the framework implementation in response headers.
@@ -50,6 +60,8 @@ export async function startControlServer(config: ControlServerConfig, password: 
 	registerUptimeEndpoint(router);
 	// Register the authenticated administrative endpoint.
 	registerAdminPingEndpoint(router, password);
+	// Register the authenticated page-reload endpoint.
+	registerAdminReloadEndpoint(router, password, handlers.reload);
 	// Mount all control endpoints below the frontend-friendly API namespace.
 	app.use("/api", router);
 	// Serve the small control frontend from the server root.
@@ -62,6 +74,7 @@ export async function startControlServer(config: ControlServerConfig, password: 
 			"/api/ping": "GET",
 			"/api/uptime": "GET",
 			"/api/admin_ping": "GET",
+			"/api/reload": "POST",
 		};
 		const allowed = allowByPath[request.path];
 		if (allowed) {

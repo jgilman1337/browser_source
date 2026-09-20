@@ -3,7 +3,7 @@
  */
 import type { Router } from "express";
 
-import { getUptimeSnapshot } from "../platform/uptime";
+import { getUptimeSnapshot } from "@/platform/uptime";
 
 /** Register the unauthenticated uptime endpoint. */
 export function registerUptimeEndpoint(router: Router): void {

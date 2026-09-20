@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { StreamerConfig } from "../config";
+import type { StreamerConfig } from "@/config";
 
 /** FFmpeg video encoders supported by this app (validated at config load). */
 export const SUPPORTED_VIDEO_CODECS = [
@@ -79,9 +79,9 @@ export const ffmpegSchema = z.object({
 	logLevel: supportedEnum(SUPPORTED_LOG_LEVELS, "ffmpeg.logLevel"),
 	stats: z.boolean(),
 	statsPeriod: z.number().positive("must be a positive number of seconds"),
-	/** Extra FFmpeg launches after a failed process (drop, timeout, connection refused). `0` = no retry. */
+	/** Unused by the persistent compositor, which reconnects indefinitely. Kept for config compatibility. */
 	retries: z.number().int().min(0, "ffmpeg.retries must be a non-negative integer."),
-	/** Seconds to wait before each FFmpeg retry. */
+	/** Seconds to wait before each output reconnect after a drop, timeout, or connection refused. */
 	retryAfter: z.number().min(0, "ffmpeg.retryAfter must be a non-negative number of seconds."),
 });
 
@@ -222,6 +222,68 @@ export function buildFFmpegArgs(config: StreamerConfig): string[] {
 	}
 
 	// Add the output format and output URL
+	args.push("-f", ffmpeg.format, outputUrl);
+	return args;
+}
+
+/** Build the long-lived compositor command used during browser reloads. */
+export function buildPersistentFFmpegArgs(config: StreamerConfig): string[] {
+	const { ffmpeg, outputUrl, frameRate } = config;
+	const profile = VIDEO_ENCODER_PROFILES[ffmpeg.videoCodec];
+	const args: string[] = [];
+
+	if (ffmpeg.hideBanner) {
+		args.push("-hide_banner");
+	}
+	args.push("-loglevel", ffmpeg.logLevel);
+	if (ffmpeg.stats) {
+		args.push("-stats", "-stats_period", String(ffmpeg.statsPeriod));
+	} else {
+		args.push("-nostats");
+	}
+	if (profile.preInputArgs?.length) {
+		args.push(...profile.preInputArgs);
+	}
+
+	const input = (): string[] => [
+		"-fflags",
+		"+genpts+discardcorrupt+nobuffer",
+		"-use_wallclock_as_timestamps",
+		"1",
+		"-probesize",
+		"32",
+		"-analyzeduration",
+		"0",
+		"-thread_queue_size",
+		"512",
+		"-f",
+		"nut",
+		"-i",
+		"pipe:3",
+	];
+
+	args.push(...input());
+	args.push(
+		"-map",
+		"0:v:0",
+		"-vf",
+		buildVideoFilter(profile, frameRate),
+		"-map",
+		"0:a:0?",
+		"-af",
+		"aresample=async=1",
+		"-c:v",
+		ffmpeg.videoCodec,
+		...profile.args,
+	);
+	if (ffmpeg.extraArgs.length) {
+		args.push(...ffmpeg.extraArgs);
+	}
+	args.push("-c:a", ffmpeg.audioCodec);
+	const formatArgs = OUTPUT_FORMAT_ARGS[ffmpeg.format];
+	if (formatArgs?.length) {
+		args.push(...formatArgs);
+	}
 	args.push("-f", ffmpeg.format, outputUrl);
 	return args;
 }
