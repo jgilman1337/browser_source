@@ -82,9 +82,13 @@ curl http://127.0.0.1:8787/api/admin_ping \
 	-H "Authorization: Bearer $(cat admin_password)"
 curl -X POST http://127.0.0.1:8787/api/reload \
 	-H "Authorization: Bearer $(cat admin_password)"
+curl -X POST http://127.0.0.1:8787/api/navigate \
+	-H "Authorization: Bearer $(cat admin_password)" \
+	-H "Content-Type: application/json" \
+	-d '{"newUrl":"https://example.com","clickPlayTarget":".ytp-play-button"}"
 ```
 
-`/api/ping` is unauthenticated. `/api/admin_ping` and `POST /api/reload` require the `Authorization: Bearer ...` header. Reload switches the persistent output to an FFmpeg-generated loading screen, reloads the Chromium page, and switches back after fresh browser frames arrive. Set `auth.admin_password` in `config.json` to use an explicit password; otherwise the process reads `admin_password` from its working directory and creates it with owner-only permissions when missing. The generated password is printed once at startup, so protect application logs.
+`/api/ping` is unauthenticated. `/api/admin_ping`, `POST /api/reload`, and `POST /api/navigate` require the `Authorization: Bearer ...` header. Reload switches the persistent output to an FFmpeg-generated loading screen, reloads the current Chromium page, and switches back after fresh browser frames arrive. Navigate does the same swap for a new `http`/`https` URL supplied as JSON `{ "newUrl": "...", "clickPlayTarget": "..." }`; `clickPlayTarget` is an optional CSS selector clicked after load. Later reloads use that URL and selector. Set `auth.admin_password` in `config.json` to use an explicit password; otherwise the process reads `admin_password` from its working directory and creates it with owner-only permissions when missing. The generated password is printed once at startup, so protect application logs.
 
 The server binds to loopback by default. The built-in Docker runners override this to bind inside the container and publish only to host loopback (`127.0.0.1:8787`). To reach it from another machine, explicitly publish the port externally, set `control.host` to `0.0.0.0`, and protect the network path with a firewall or reverse proxy. When using Docker, mount a persistent password file at `/app/admin_password` if the generated credential must survive container replacement:
 
@@ -270,8 +274,10 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 | `clickPlayTarget`            | _(unset)_ — CSS selector for a play/start button to click after load                          |
 | `hideScrollbars`             | `false` — hide horizontal and vertical scrollbars in the capture                              |
 | `embedAsMedia`               | _(unset)_ — `"audio"` or `"video"` to load a direct stream URL in a media element             |
-| `navigation.timeoutMs`       | `60000` — max wait for page load and selector waits (`0` = no timeout)                        |
+| `navigation.timeoutMs`       | `15000` — max wait for page load (`0` = no timeout)                                           |
 | `navigation.waitUntil`       | `load` — Puppeteer lifecycle to wait for (`domcontentloaded`, `networkidle0`, `networkidle2`) |
+| `navigation.clickRetryAfter` | `5` — seconds between play-button selector retries                                            |
+| `navigation.clickTimeout`    | `30` — seconds to keep looking for the play-button selector                                   |
 | `stream.audio`               | `true`                                                                                        |
 | `stream.video`               | `true`                                                                                        |
 | `stream.videoMbitsPerSecond` | `8` — MediaRecorder capture bitrate in Mbit/s; Chrome defaults ~2.5 Mbps and cause artifacts  |
@@ -297,13 +303,17 @@ Unsupported `videoCodec`, `audioCodec`, `format`, or `logLevel` values **fail at
 
 ### Play button click (`clickPlayTarget`)
 
-Some sites block autoplay until the user clicks a play or start control. Set `clickPlayTarget` to a CSS selector for that element; after navigation the streamer waits for it to be visible, clicks it, then nudges any `<video>` / `<audio>` elements as usual.
+Some sites block autoplay until the user clicks a play or start control. Set `clickPlayTarget` to a CSS selector for that element; after navigation the streamer waits for it to be visible, clicks it, then nudges any `<video>` / `<audio>` elements as usual. If the control is not in the DOM yet, it retries every `navigation.clickRetryAfter` seconds until `navigation.clickTimeout` seconds have elapsed.
 
 ```json
 {
 	"targetUrl": "https://your-livestream-page.com",
 	"outputUrl": "srt://host.docker.internal:5000?mode=caller",
-	"clickPlayTarget": ".play-button"
+	"clickPlayTarget": ".play-button",
+	"navigation": {
+		"clickRetryAfter": 5,
+		"clickTimeout": 30
+	}
 }
 ```
 
@@ -355,7 +365,7 @@ Page load uses Puppeteer's `waitUntil` and `timeoutMs` settings. The default is 
 | `networkidle0`     | No network connections for 500ms (strict)                       |
 | `networkidle2`     | At most 2 connections for 500ms (often times out on live sites) |
 
-Set `timeoutMs` to `0` to disable the navigation timeout. The same timeout applies to `clickPlayTarget` selector waits.
+Set `timeoutMs` to `0` to disable the navigation timeout. Play-button selector waits use `navigation.clickRetryAfter` and `navigation.clickTimeout` instead.
 
 FFmpeg logging is quiet by default: the copyright banner is hidden (`-hide_banner`), encoding progress prints every 5 seconds (`-stats_period 5` instead of FFmpeg's 0.5s), and `-loglevel` is `warning`. Set `stats` to `false` to disable progress entirely. `logLevel` accepts FFmpeg's named levels: `quiet`, `panic`, `fatal`, `error`, `warning`, `info`, `verbose`, `debug`, `trace`.
 

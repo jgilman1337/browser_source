@@ -1,20 +1,22 @@
 <!doctype html>
 <html lang="en">
+
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<title>Browser Source Control</title>
 		<link rel="stylesheet" href="/styles.css" />
 	</head>
+
 	<body>
 		<main class="panel">
-			<h1>Browser Source Control</h1>
+			<h1><b>Browser Source Control</b></h1>
 
 			<form id="control-form">
 				<label for="admin-password">Admin Password</label>
 				<div class="password-field">
 					<input id="admin-password" name="admin-password" type="password" autocomplete="current-password" />
-					<button id="password-toggle" class="password-toggle" type="button" aria-label="Show admin password">
+					<button id="password-toggle" class="icon-button" type="button" aria-label="Show admin password">
 						<span class="eye-icon" aria-hidden="true"></span>
 					</button>
 				</div>
@@ -24,6 +26,8 @@
 					<select id="operation" name="operation"></select>
 					<button type="submit">Submit</button>
 				</div>
+
+				<div id="operation-params"></div>
 			</form>
 
 			<section aria-labelledby="result-heading">
@@ -34,4 +38,5 @@
 
 		<script src="/app.js"></script>
 	</body>
+
 </html>

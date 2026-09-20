@@ -244,6 +244,18 @@ export class PersistentFFmpegRelay {
 
 	/** Start FFmpeg that decodes the browser WebM into one interleaved local stream. */
 	private startBrowserProducer(capture: Readable): ChildProcess {
+		const audioInput = this.config.stream.audio
+			? ["-map", "0:v:0", "-map", "0:a:0", "-af", "aresample=async=1"]
+			: [
+					"-f",
+					"lavfi",
+					"-i",
+					"anullsrc=channel_layout=stereo:sample_rate=48000",
+					"-map",
+					"0:v:0",
+					"-map",
+					"1:a:0",
+				];
 		const process = spawn(
 			"ffmpeg",
 			[
@@ -255,16 +267,9 @@ export class PersistentFFmpegRelay {
 				"+genpts",
 				"-i",
 				"pipe:0",
-				"-f",
-				"lavfi",
-				"-i",
-				"anullsrc=channel_layout=stereo:sample_rate=48000",
 				"-fps_mode",
 				"passthrough",
-				"-map",
-				"0:v:0",
-				"-map",
-				"1:a:0",
+				...audioInput,
 				...PRODUCER_NUT_ARGS,
 				"-progress",
 				"pipe:3",

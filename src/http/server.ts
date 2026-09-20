@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import express, { type NextFunction, type Request, type Response } from "express";
 
 import { error, log } from "@/platform/logger";
+import { registerAdminNavigateEndpoint, type NavigateRequest } from "@/http/admin-navigate";
 import { registerAdminPingEndpoint } from "@/http/admin-ping";
 import { registerAdminReloadEndpoint } from "@/http/admin-reload";
 import { registerPingEndpoint } from "@/http/ping";
@@ -24,6 +25,7 @@ export type ControlServerConfig = {
 /** Administrative callbacks exposed by the control server. */
 export type ControlServerHandlers = {
 	reload: () => Promise<void>;
+	navigate: (request: NavigateRequest) => Promise<void>;
 };
 
 /** Absolute path to the bundled static frontend directory. */
@@ -62,6 +64,8 @@ export async function startControlServer(
 	registerAdminPingEndpoint(router, password);
 	// Register the authenticated page-reload endpoint.
 	registerAdminReloadEndpoint(router, password, handlers.reload);
+	// Register the authenticated navigate-to-URL endpoint.
+	registerAdminNavigateEndpoint(router, password, handlers.navigate);
 	// Mount all control endpoints below the frontend-friendly API namespace.
 	app.use("/api", router);
 	// Serve the small control frontend from the server root.
@@ -75,6 +79,7 @@ export async function startControlServer(
 			"/api/uptime": "GET",
 			"/api/admin_ping": "GET",
 			"/api/reload": "POST",
+			"/api/navigate": "POST",
 		};
 		const allowed = allowByPath[request.path];
 		if (allowed) {

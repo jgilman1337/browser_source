@@ -27,6 +27,10 @@ function browserMimeTypeSchema(field: string) {
 export const navigationSchema = z.object({
 	timeoutMs: z.number().min(0, "navigation.timeoutMs must be a non-negative number (0 disables the timeout)."),
 	waitUntil: supportedEnum(NAVIGATION_WAIT_UNTIL, "navigation.waitUntil"),
+	/** Seconds between play-button selector retries after the page has loaded. */
+	clickRetryAfter: z.number().min(0, "navigation.clickRetryAfter must be a non-negative number of seconds."),
+	/** Seconds to keep retrying the play-button selector before giving up. */
+	clickTimeout: z.number().positive("navigation.clickTimeout must be a positive number of seconds."),
 });
 
 /** Resolved navigation settings after defaults are applied. */

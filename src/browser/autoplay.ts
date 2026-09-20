@@ -1,4 +1,5 @@
 import type { NavigationConfig } from "@/config";
+import { log } from "@/platform/logger";
 
 type PageWithTimeouts = {
 	setDefaultNavigationTimeout(timeout: number): void;
@@ -101,10 +102,34 @@ export async function enableAutoplayOnPage(page: PageLike): Promise<void> {
 	});
 }
 
-/** Click a play/start control when the site requires a user gesture before media starts. */
-export async function clickPlayTarget(page: PageWithClick, selector: string): Promise<void> {
-	await page.waitForSelector(selector, { visible: true });
-	await page.click(selector);
+/** Click a play/start control, retrying until the selector appears or the wait expires. */
+export async function clickPlayTarget(page: PageWithClick, selector: string, navigation: NavigationConfig): Promise<void> {
+	const retryAfterMs = Math.max(1, Math.round(navigation.clickRetryAfter * 1000));
+	const timeoutMs = navigation.clickTimeout * 1000;
+	const deadline = Date.now() + timeoutMs;
+	const maxRetries = Math.max(1, Math.ceil(timeoutMs / retryAfterMs));
+	let attempt = 0;
+
+	while (true) {
+		const remainingMs = deadline - Date.now();
+		if (remainingMs <= 0) {
+			throw new Error(`Timed out after ${navigation.clickTimeout}s waiting for selector \`${selector}\``);
+		}
+		attempt += 1;
+		try {
+			await page.waitForSelector(selector, { visible: true, timeout: Math.min(retryAfterMs, remainingMs) });
+			await page.click(selector);
+			return;
+		} catch (err) {
+			const secondsLeft = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+			if (secondsLeft <= 0 || Date.now() >= deadline) {
+				throw new Error(`Timed out after ${navigation.clickTimeout}s waiting for selector \`${selector}\``, {
+					cause: err,
+				});
+			}
+			log(`Play target ${selector} not ready (retry ${attempt}/${maxRetries}, ${secondsLeft}s left)`);
+		}
+	}
 }
 
 function escapeHtmlAttr(value: string): string {

@@ -23,7 +23,7 @@ body {
 
 h1,
 select,
-button:not(.password-toggle) {
+button:not(.icon-button) {
 	border: var(--border);
 	background: #fff;
 	font: inherit;
@@ -46,7 +46,7 @@ h2 {
 
 input,
 select,
-button:not(.password-toggle) {
+button:not(.icon-button) {
 	min-height: 42px;
 }
 
@@ -79,7 +79,7 @@ input {
 	background: transparent;
 }
 
-.password-toggle {
+.icon-button {
 	display: grid;
 	flex-shrink: 0;
 	width: 42px;
@@ -92,12 +92,12 @@ input {
 	cursor: pointer;
 }
 
-.password-toggle:hover,
-.password-toggle:focus-visible {
+.icon-button:hover,
+.icon-button:focus-visible {
 	background: transparent;
 }
 
-.password-toggle:focus-visible {
+.icon-button:focus-visible {
 	outline: 2px solid #000;
 	outline-offset: -2px;
 }
@@ -109,7 +109,7 @@ input {
 	background: url("/icons/eye.svg") center / contain no-repeat;
 }
 
-.password-toggle.is-visible .eye-icon {
+.icon-button.is-visible .eye-icon {
 	background-image: url("/icons/eye-slash.svg");
 }
 
@@ -118,6 +118,7 @@ input {
 	grid-template-columns: 1fr 140px;
 	gap: 8px;
 	align-items: center;
+	margin-bottom: 10px;
 }
 
 .operation-row label {
@@ -125,19 +126,50 @@ input {
 	margin-bottom: -8px;
 }
 
+.param-field {
+	margin: 0 0 10px;
+}
+
+.param-value {
+	display: flex;
+	align-items: center;
+	margin: 3px 0 0;
+	border: var(--border);
+	background: #fff;
+}
+
+.param-value input {
+	flex: 1;
+	width: auto;
+	min-width: 0;
+	min-height: 42px;
+	margin: 0;
+	padding: 4px 8px;
+	padding-right: 4px;
+	border: 0;
+	background: transparent;
+}
+
+.close-icon {
+	display: block;
+	width: 20px;
+	height: 20px;
+	background: url("/icons/close.svg") center / contain no-repeat;
+}
+
 select,
-button:not(.password-toggle) {
+button:not(.icon-button) {
 	padding: 2px 7px;
 	font-size: 16px;
 	cursor: pointer;
 }
 
-button:not(.password-toggle) {
+button:not(.icon-button) {
 	font-weight: 400;
 }
 
-button:not(.password-toggle):hover,
-button:not(.password-toggle):focus-visible {
+button:not(.icon-button):hover,
+button:not(.icon-button):focus-visible {
 	background: #eee;
 }
 

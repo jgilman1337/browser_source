@@ -68,6 +68,10 @@ export const NAVIGATION_WAIT_UNTIL = ["load", "domcontentloaded", "networkidle0"
 export const DEFAULT_NAVIGATION = {
 	timeoutMs: 15_000,
 	waitUntil: "load" as (typeof NAVIGATION_WAIT_UNTIL)[number],
+	/** Seconds between play-button selector retries. */
+	clickRetryAfter: 5,
+	/** Seconds to keep looking for the play-button selector. */
+	clickTimeout: 30,
 };
 
 /** Default HTTP control server settings. */

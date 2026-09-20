@@ -49,7 +49,7 @@ let reloadingPage = false;
 /** Current capture stream; stale streams must not terminate the live pipeline. */
 let activeCapture: Readable | null = null;
 /** Assigned after the capture page exists so the HTTP server can trigger reloads. */
-let reloadPage: (() => Promise<void>) | null = null;
+let reloadPage: ((next?: { url?: string; clickPlayTarget?: string }) => Promise<void>) | null = null;
 
 /** Tear down FFmpeg, Chromium, and puppeteer-stream's internal WebSocket server. */
 async function shutdown(): Promise<void> {
@@ -172,7 +172,7 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 		// If a click play target is configured, click it
 		if (config.clickPlayTarget) {
 			log(`Clicking play target ${config.clickPlayTarget}...`);
-			await clickPlayTarget(page, config.clickPlayTarget);
+			await clickPlayTarget(page, config.clickPlayTarget, config.navigation);
 		}
 
 		// Kick any existing media that was already on the page when navigation finished
@@ -207,26 +207,59 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 		};
 
 		// Replace the page while the relay displays its generated loading stream.
-		reloadPage = async (): Promise<void> => {
+		type PageTarget = { url: string; clickPlayTarget?: string };
+		let currentTarget: PageTarget = { url: config.targetUrl, clickPlayTarget: config.clickPlayTarget };
+
+		/** Load a URL, click its play control if set, and attach a fresh capture. */
+		const openAndCapture = async (target: PageTarget): Promise<void> => {
+			if (!mediaRelay) {
+				throw new Error("media relay is not initialized");
+			}
+			const isOriginalTarget = target.url === config.targetUrl;
+			if (isOriginalTarget && config.embedAsMedia) {
+				await loadMediaStreamTarget(page, target.url, config.embedAsMedia, config.navigation);
+			} else {
+				log(
+					`Navigating to ${target.url} (waitUntil: ${config.navigation.waitUntil}, timeout: ${config.navigation.timeoutMs}ms)...`,
+				);
+				await navigateToTarget(page, target.url, config.navigation);
+			}
+			if (target.clickPlayTarget) {
+				log(`Clicking play target ${target.clickPlayTarget}...`);
+				await clickPlayTarget(page, target.clickPlayTarget, config.navigation);
+			}
+			await kickExistingMedia(page);
+			await mediaRelay.replaceBrowserCapture(await createCaptureStream());
+		};
+
+		reloadPage = async (next?: { url?: string; clickPlayTarget?: string }): Promise<void> => {
 			if (reloadingPage) {
 				throw new Error("page reload already in progress");
 			}
 			reloadingPage = true;
+			const previousTarget = currentTarget;
 			try {
 				if (!mediaRelay) {
 					throw new Error("media relay is not initialized");
 				}
+				if (next?.url) {
+					currentTarget = { url: next.url, clickPlayTarget: next.clickPlayTarget };
+				}
 				await mediaRelay.switchToFallback();
-				if (config.embedAsMedia) {
-					await loadMediaStreamTarget(page, config.targetUrl, config.embedAsMedia, config.navigation);
-				} else {
-					await navigateToTarget(page, config.targetUrl, config.navigation);
+				try {
+					await openAndCapture(currentTarget);
+				} catch (err) {
+					error(`Page load failed, returning to ${previousTarget.url}`, err);
+					currentTarget = previousTarget;
+					try {
+						await openAndCapture(currentTarget);
+					} catch (restoreError) {
+						error("Failed to restore the previous page", restoreError);
+						throw restoreError;
+					}
+					const reason = err instanceof Error ? err.message : String(err);
+					throw new Error(`${reason}; restored previous page`);
 				}
-				if (config.clickPlayTarget) {
-					await clickPlayTarget(page, config.clickPlayTarget);
-				}
-				await kickExistingMedia(page);
-				await mediaRelay.replaceBrowserCapture(await createCaptureStream());
 			} finally {
 				reloadingPage = false;
 			}
@@ -275,6 +308,12 @@ controlServer = await startControlServer(config.control, adminPassword.password,
 			throw new Error("browser page is not ready");
 		}
 		await reloadPage();
+	},
+	navigate: async (request) => {
+		if (!reloadPage) {
+			throw new Error("browser page is not ready");
+		}
+		await reloadPage({ url: request.newUrl, clickPlayTarget: request.clickPlayTarget });
 	},
 });
 const captureRates = [
