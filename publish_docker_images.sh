@@ -51,13 +51,27 @@ fi
 echo "Logging in to ghcr.io as ${TOKEN_USER}" >&2
 echo "${TOKEN}" | docker login ghcr.io -u "${TOKEN_USER}" --password-stdin
 
-# 2. Name images for the registry
+# 2. Build local images tagged from VERSION
+echo "Building browser_source-node:${VERSION}" >&2
+docker build -f Dockerfile.node \
+	-t "browser_source-node:${VERSION}" \
+	-t browser_source-node:latest \
+	-t browser_source-node \
+	.
+echo "Building browser_source-bun:${VERSION}" >&2
+docker build -f Dockerfile.bun \
+	-t "browser_source-bun:${VERSION}" \
+	-t browser_source-bun:latest \
+	-t browser_source-bun \
+	.
+
+# 3. Name images for the registry
 docker tag "browser_source-node:${VERSION}" "${REGISTRY}/browser_source-node:${VERSION}"
 docker tag browser_source-node:latest "${REGISTRY}/browser_source-node:latest"
 docker tag "browser_source-bun:${VERSION}" "${REGISTRY}/browser_source-bun:${VERSION}"
 docker tag browser_source-bun:latest "${REGISTRY}/browser_source-bun:latest"
 
-# 3. Push
+# 4. Push
 docker push "${REGISTRY}/browser_source-node:${VERSION}"
 docker push "${REGISTRY}/browser_source-node:latest"
 docker push "${REGISTRY}/browser_source-bun:${VERSION}"
