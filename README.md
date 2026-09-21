@@ -381,7 +381,7 @@ FFmpeg logging is quiet by default: the copyright banner is hidden (`-hide_banne
 | AMD AMF                 | `h264_amf`, `hevc_amf`, `av1_amf`                                                               |
 | V4L2 mem2mem            | `h264_v4l2m2m`, `hevc_v4l2m2m`, `h263_v4l2m2m`, `mpeg4_v4l2m2m`, `vp8_v4l2m2m`                  |
 
-Known encoders get tuning automatically (e.g. `libx264` → `veryfast`, NVENC → `p4+hq` + AQ, VAAPI/QSV → hwupload). Video filters include `gradfun` to reduce gradient banding. For NVENC, add `-rc cbr` in `extraArgs` when you need a fixed output bitrate (`-b:v` alone is ignored). For lowest latency, override with `-preset p1 -tune ull -zerolatency 1` in `extraArgs`.
+Known encoders get tuning automatically (e.g. `libx264` → `veryfast`, NVENC → `p4+hq` + AQ, VAAPI/QSV → hwupload). Video is normalized with `fps` and `format=yuv420p` before encode. For NVENC, add `-rc cbr` in `extraArgs` when you need a fixed output bitrate (`-b:v` alone is ignored). For lowest latency, override with `-preset p1 -tune ull -zerolatency 1` in `extraArgs`.
 
 VAAPI device path defaults to `/dev/dri/renderD128`; override with `VAAPI_DEVICE` env var. `docker:run` passes `--gpus all` and `--device /dev/dri` for NVIDIA + Intel/AMD encode.
 

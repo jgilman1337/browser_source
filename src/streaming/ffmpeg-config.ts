@@ -139,7 +139,8 @@ const OUTPUT_FORMAT_ARGS: Partial<Record<OutputFormat, string[]>> = {
 };
 
 function buildVideoFilter(profile: EncoderProfile, frameRate: number): string {
-	const base = `fps=${frameRate},format=yuv420p,gradfun=strength=1.2:radius=12`;
+	//const base = `fps=${frameRate},format=yuv420p,gradfun=strength=1.2:radius=12`;
+	const base = `fps=${frameRate},format=yuv420p`;
 	if (profile.videoFilter) {
 		return `${base},${profile.videoFilter}`;
 	}
