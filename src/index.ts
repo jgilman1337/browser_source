@@ -29,7 +29,7 @@ import { loadConfig, type StreamerConfig } from "@/config";
 import { error, log } from "@/platform/logger";
 import { runtimeName } from "@/platform/runtime";
 import { resolveAdminPassword } from "@/platform/auth";
-import "@/platform/uptime";
+import { markPageStarted } from "@/platform/uptime";
 import { startControlServer, stopControlServer } from "@/http/server";
 import { PersistentFFmpegRelay } from "@/streaming/relay";
 
@@ -50,6 +50,8 @@ let reloadingPage = false;
 let activeCapture: Readable | null = null;
 /** Assigned after the capture page exists so the HTTP server can trigger reloads. */
 let reloadPage: ((next?: { url?: string; clickPlayTarget?: string }) => Promise<void>) | null = null;
+/** Timer for proactive page and browser-capture refreshes. */
+let automaticReloadTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Tear down FFmpeg, Chromium, and puppeteer-stream's internal WebSocket server. */
 async function shutdown(): Promise<void> {
@@ -59,6 +61,10 @@ async function shutdown(): Promise<void> {
 	await mediaRelay?.stop();
 	mediaRelay = null;
 	activeCapture = null;
+	if (automaticReloadTimer) {
+		clearTimeout(automaticReloadTimer);
+		automaticReloadTimer = null;
+	}
 
 	// Close the browser if it is not closed
 	if (browser) {
@@ -72,6 +78,32 @@ async function shutdown(): Promise<void> {
 	} catch {
 		// Already closed on normal exit — safe to ignore.
 	}
+}
+
+/** Schedule the next proactive page refresh so long-lived audio capture is recreated periodically. */
+function scheduleAutomaticReload(config: StreamerConfig): void {
+	if (shuttingDown || !reloadPage || config.navigation.reloadAfterHours === 0) {
+		return;
+	}
+
+	const delayMs = config.navigation.reloadAfterHours * 60 * 60 * 1000;
+	automaticReloadTimer = setTimeout(() => {
+		automaticReloadTimer = null;
+		if (shuttingDown || !reloadPage) {
+			return;
+		}
+		log(`Refreshing browser page and audio capture after ${config.navigation.reloadAfterHours} hours...`);
+		void reloadPage()
+			.then(() => {
+				log("Automatic browser refresh completed.");
+			})
+			.catch((err: unknown) => {
+				error("Automatic browser refresh failed; keeping the current stream", err);
+			})
+			.finally(() => {
+				scheduleAutomaticReload(config);
+			});
+	}, delayMs);
 }
 
 /** Stop the pipeline and exit — no-op if shutdown is already in progress. */
@@ -230,6 +262,7 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 			}
 			await kickExistingMedia(page);
 			await mediaRelay.replaceBrowserCapture(await createCaptureStream());
+			markPageStarted();
 		};
 
 		reloadPage = async (next?: { url?: string; clickPlayTarget?: string }): Promise<void> => {
@@ -258,7 +291,7 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 						throw restoreError;
 					}
 					const reason = err instanceof Error ? err.message : String(err);
-					throw new Error(`${reason}; restored previous page`);
+					throw new Error(`${reason}; restored previous page`, { cause: err });
 				}
 			} finally {
 				reloadingPage = false;
@@ -272,6 +305,8 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 			createCaptureStream,
 		});
 		await mediaRelay.start(await createCaptureStream());
+		markPageStarted();
+		scheduleAutomaticReload(config);
 
 		log(`Streaming live to ${config.outputUrl}...`);
 	} catch (err) {

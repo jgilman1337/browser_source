@@ -10,7 +10,8 @@
 		"timeoutMs": 15000,
 		"waitUntil": "load",
 		"clickRetryAfter": 5,
-		"clickTimeout": 30
+		"clickTimeout": 30,
+		"reloadAfterHours": 12
 	},
 	"stream": {
 		"audio": true,

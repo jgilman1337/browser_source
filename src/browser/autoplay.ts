@@ -28,7 +28,7 @@ type PageLike = {
 };
 
 type PageWithClick = PageLike & {
-	waitForSelector(selector: string, options?: { visible?: boolean }): Promise<unknown>;
+	waitForSelector(selector: string, options?: { visible?: boolean; timeout?: number }): Promise<unknown>;
 	click(selector: string): Promise<void>;
 };
 
@@ -103,7 +103,11 @@ export async function enableAutoplayOnPage(page: PageLike): Promise<void> {
 }
 
 /** Click a play/start control, retrying until the selector appears or the wait expires. */
-export async function clickPlayTarget(page: PageWithClick, selector: string, navigation: NavigationConfig): Promise<void> {
+export async function clickPlayTarget(
+	page: PageWithClick,
+	selector: string,
+	navigation: NavigationConfig,
+): Promise<void> {
 	const retryAfterMs = Math.max(1, Math.round(navigation.clickRetryAfter * 1000));
 	const timeoutMs = navigation.clickTimeout * 1000;
 	const deadline = Date.now() + timeoutMs;

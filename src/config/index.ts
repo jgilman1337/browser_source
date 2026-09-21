@@ -31,6 +31,8 @@ export const navigationSchema = z.object({
 	clickRetryAfter: z.number().min(0, "navigation.clickRetryAfter must be a non-negative number of seconds."),
 	/** Seconds to keep retrying the play-button selector before giving up. */
 	clickTimeout: z.number().positive("navigation.clickTimeout must be a positive number of seconds."),
+	/** Hours between proactive page and browser-capture refreshes; zero disables automatic refreshes. */
+	reloadAfterHours: z.number().min(0, "navigation.reloadAfterHours must be a non-negative number of hours."),
 });
 
 /** Resolved navigation settings after defaults are applied. */

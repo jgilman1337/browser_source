@@ -266,38 +266,39 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 
 **Optional** (defaults in `src/config/defaults.ts`):
 
-| Field                        | Default                                                                                       |
-| ---------------------------- | --------------------------------------------------------------------------------------------- |
-| `width`                      | `1280`                                                                                        |
-| `height`                     | `720`                                                                                         |
-| `frameRate`                  | `30`                                                                                          |
-| `clickPlayTarget`            | _(unset)_ — CSS selector for a play/start button to click after load                          |
-| `hideScrollbars`             | `false` — hide horizontal and vertical scrollbars in the capture                              |
-| `embedAsMedia`               | _(unset)_ — `"audio"` or `"video"` to load a direct stream URL in a media element             |
-| `navigation.timeoutMs`       | `15000` — max wait for page load (`0` = no timeout)                                           |
-| `navigation.waitUntil`       | `load` — Puppeteer lifecycle to wait for (`domcontentloaded`, `networkidle0`, `networkidle2`) |
-| `navigation.clickRetryAfter` | `5` — seconds between play-button selector retries                                            |
-| `navigation.clickTimeout`    | `30` — seconds to keep looking for the play-button selector                                   |
-| `stream.audio`               | `true`                                                                                        |
-| `stream.video`               | `true`                                                                                        |
-| `stream.videoMbitsPerSecond` | `8` — MediaRecorder capture bitrate in Mbit/s; Chrome defaults ~2.5 Mbps and cause artifacts  |
-| `stream.audioKbitsPerSecond` | `192` — MediaRecorder tab-audio capture bitrate in kbit/s                                     |
-| `stream.mimeType`            | `video/webm;codecs=vp9` — VP9 for gradients; use `video/webm;codecs=vp8` if capture fails     |
-| `ffmpeg.videoCodec`          | `libx264`                                                                                     |
-| `ffmpeg.audioCodec`          | `aac`                                                                                         |
-| `ffmpeg.format`              | `mpegts`                                                                                      |
-| `ffmpeg.hideBanner`          | `true`                                                                                        |
-| `ffmpeg.logLevel`            | `warning`                                                                                     |
-| `ffmpeg.stats`               | `true`                                                                                        |
-| `ffmpeg.statsPeriod`         | `5`                                                                                           |
-| `ffmpeg.retries`             | `10` — unused; the persistent compositor reconnects indefinitely                             |
-| `ffmpeg.retryAfter`          | `5` — seconds to wait before each output reconnect                                            |
-| `ffmpeg.extraArgs`           | `[]`                                                                                          |
-| `puppeteer.headless`         | `false`                                                                                       |
-| `puppeteer.args`             | Docker-safe + GPU Chromium flags (no-sandbox, ANGLE/Vulkan, VAAPI decode)                     |
-| `control.host`               | `127.0.0.1` — HTTP control bind address                                                       |
-| `control.port`               | `8787` — HTTP control port                                                                    |
-| `auth.admin_password`        | _(unset)_ — uses `admin_password`, generating it when missing                                 |
+| Field                         | Default                                                                                       |
+| ----------------------------- | --------------------------------------------------------------------------------------------- |
+| `width`                       | `1280`                                                                                        |
+| `height`                      | `720`                                                                                         |
+| `frameRate`                   | `30`                                                                                          |
+| `clickPlayTarget`             | _(unset)_ — CSS selector for a play/start button to click after load                          |
+| `hideScrollbars`              | `false` — hide horizontal and vertical scrollbars in the capture                              |
+| `embedAsMedia`                | _(unset)_ — `"audio"` or `"video"` to load a direct stream URL in a media element             |
+| `navigation.timeoutMs`        | `15000` — max wait for page load (`0` = no timeout)                                           |
+| `navigation.waitUntil`        | `load` — Puppeteer lifecycle to wait for (`domcontentloaded`, `networkidle0`, `networkidle2`) |
+| `navigation.clickRetryAfter`  | `5` — seconds between play-button selector retries                                            |
+| `navigation.clickTimeout`     | `30` — seconds to keep looking for the play-button selector                                   |
+| `navigation.reloadAfterHours` | `12` — proactively recreate the page and browser audio capture; `0` disables automatic refreshes |
+| `stream.audio`                | `true`                                                                                        |
+| `stream.video`                | `true`                                                                                        |
+| `stream.videoMbitsPerSecond`  | `8` — MediaRecorder capture bitrate in Mbit/s; Chrome defaults ~2.5 Mbps and cause artifacts  |
+| `stream.audioKbitsPerSecond`  | `192` — MediaRecorder tab-audio capture bitrate in kbit/s                                     |
+| `stream.mimeType`             | `video/webm;codecs=vp9` — VP9 for gradients; use `video/webm;codecs=vp8` if capture fails     |
+| `ffmpeg.videoCodec`           | `libx264`                                                                                     |
+| `ffmpeg.audioCodec`           | `aac`                                                                                         |
+| `ffmpeg.format`               | `mpegts`                                                                                      |
+| `ffmpeg.hideBanner`           | `true`                                                                                        |
+| `ffmpeg.logLevel`             | `warning`                                                                                     |
+| `ffmpeg.stats`                | `true`                                                                                        |
+| `ffmpeg.statsPeriod`          | `5`                                                                                           |
+| `ffmpeg.retries`              | `10` — unused; the persistent compositor reconnects indefinitely                              |
+| `ffmpeg.retryAfter`           | `5` — seconds to wait before each output reconnect                                            |
+| `ffmpeg.extraArgs`            | `[]`                                                                                          |
+| `puppeteer.headless`          | `false`                                                                                       |
+| `puppeteer.args`              | Docker-safe + GPU Chromium flags (no-sandbox, ANGLE/Vulkan, VAAPI decode)                     |
+| `control.host`                | `127.0.0.1` — HTTP control bind address                                                       |
+| `control.port`                | `8787` — HTTP control port                                                                    |
+| `auth.admin_password`         | _(unset)_ — uses `admin_password`, generating it when missing                                 |
 
 Unsupported `videoCodec`, `audioCodec`, `format`, or `logLevel` values **fail at startup** with a list of allowed options.
 

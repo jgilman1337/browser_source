@@ -72,6 +72,8 @@ export const DEFAULT_NAVIGATION = {
 	clickRetryAfter: 5,
 	/** Seconds to keep looking for the play-button selector. */
 	clickTimeout: 30,
+	/** Hours between proactive page and browser-capture refreshes. */
+	reloadAfterHours: 12,
 };
 
 /** Default HTTP control server settings. */
