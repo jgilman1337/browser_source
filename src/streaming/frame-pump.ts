@@ -68,13 +68,20 @@ export class OutputFramePump {
 		return this.browserFrames.length * this.frameBytes;
 	}
 
+	/** Broken compositor stdin. Stop pacing so the reconnect loop can open a new sender. */
+	private readonly onPipeError = (err: NodeJS.ErrnoException): void => {
+		if (err.code === "EPIPE" || err.code === "ECONNRESET") {
+			this.stop();
+		}
+	};
+
 	/** Attach the compositor pipes and start pacing at the output frame rate. */
 	public start(videoOut: Writable, audioOut: Writable): void {
+		this.stop();
 		this.videoOut = videoOut;
 		this.audioOut = audioOut;
-		if (this.timer) {
-			return;
-		}
+		videoOut.on("error", this.onPipeError);
+		audioOut.on("error", this.onPipeError);
 		this.startedAt = performance.now();
 		this.framesSent = 0;
 		this.schedule();
@@ -88,6 +95,8 @@ export class OutputFramePump {
 		}
 		this.startedAt = 0;
 		this.framesSent = 0;
+		this.videoOut?.off("error", this.onPipeError);
+		this.audioOut?.off("error", this.onPipeError);
 		this.videoOut = null;
 		this.audioOut = null;
 	}
@@ -153,6 +162,9 @@ export class OutputFramePump {
 		let burst = 0;
 		while (this.startedAt + this.framesSent * interval <= now && burst < 2) {
 			this.tick();
+			if (!this.videoOut || !this.audioOut) {
+				return;
+			}
 			this.framesSent += 1;
 			burst += 1;
 		}
@@ -183,13 +195,31 @@ export class OutputFramePump {
 
 	/** One output tick: loading picture, or the next cached browser frame. */
 	private tick(): void {
-		if (!this.videoOut || !this.audioOut) {
+		const videoOut = this.videoOut;
+		const audioOut = this.audioOut;
+		if (!videoOut || !audioOut) {
 			return;
 		}
 		const video = this.nextVideo();
 		const audio = this.nextAudio();
-		this.videoOut.write(video);
-		this.audioOut.write(audio);
+		// A dead compositor surfaces as EPIPE. Stop pacing so the reconnect loop can open a new sender.
+		if (!this.writePipe(videoOut, video) || !this.writePipe(audioOut, audio)) {
+			this.stop();
+		}
+	}
+
+	/** Write one paced chunk. A broken pipe means the compositor is already gone. */
+	private writePipe(stream: Writable, chunk: Buffer): boolean {
+		try {
+			stream.write(chunk);
+			return true;
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code;
+			if (code === "EPIPE" || code === "ECONNRESET") {
+				return false;
+			}
+			throw err;
+		}
 	}
 
 	/** Pick the frame that should be on the output this tick. */

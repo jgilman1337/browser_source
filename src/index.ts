@@ -358,6 +358,16 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 	}
 }
 
+// A dropped output closes FFmpeg's stdin while a paced write is in flight.
+// That EPIPE must not kill the process; the relay reconnects the sender.
+process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
+	if (err.code === "EPIPE" || err.code === "ECONNRESET") {
+		log("Ignored broken pipe while the output reconnects");
+		return;
+	}
+	void exitPipeline(1, "Uncaught exception", err);
+});
+
 // Handle SIGINT (Ctrl+C)
 process.on("SIGINT", () => {
 	log("Shutting down...");
