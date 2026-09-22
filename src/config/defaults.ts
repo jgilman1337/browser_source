@@ -76,6 +76,11 @@ export const DEFAULT_NAVIGATION = {
 	reloadAfterHours: 12,
 };
 
+/** Raw decoded video kept ahead of the compositor before output starts (tab-capture path only). */
+export const DEFAULT_BUFFER = {
+	preloadSeconds: 3,
+};
+
 /** Default HTTP control server settings. */
 export const DEFAULT_CONTROL = {
 	host: process.env.CONTROL_HOST ?? "127.0.0.1",
@@ -88,6 +93,7 @@ export const DEFAULT_STREAMER_CONFIG = {
 	height: DEFAULT_HEIGHT,
 	frameRate: DEFAULT_FRAME_RATE,
 	hideScrollbars: false,
+	buffer: { ...DEFAULT_BUFFER },
 	navigation: { ...DEFAULT_NAVIGATION },
 	stream: { ...DEFAULT_STREAM },
 	puppeteer: {

@@ -1,7 +1,7 @@
 /**
  * FFmpeg child process: spawn, pipe capture into stdin, and retry on drop / timeout / refused.
  *
- * CLI args come from `ffmpeg-config.ts`. Chromium is owned by the application
+ * CLI args come from `ffmpeg-args.ts`. Chromium is owned by the application
  * entrypoint and is not relaunched here.
  */
 import { spawn, type ChildProcess } from "child_process";
@@ -9,7 +9,7 @@ import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 
 import type { StreamerConfig } from "@/config";
-import { buildFFmpegArgs } from "@/streaming/ffmpeg-config";
+import { buildFFmpegArgs } from "@/streaming/ffmpeg-args";
 import { error, log } from "@/platform/logger";
 import { packageManagerRun } from "@/platform/runtime";
 

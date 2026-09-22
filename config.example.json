@@ -6,6 +6,9 @@
 	"width": 1280,
 	"height": 720,
 	"frameRate": 30,
+	"buffer": {
+		"preloadSeconds": 3
+	},
 	"navigation": {
 		"timeoutMs": 15000,
 		"waitUntil": "load",

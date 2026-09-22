@@ -19,6 +19,8 @@ Website
 
 puppeteer-stream always outputs **WebM (VP8/VP9)**. FFmpeg re-encodes (H.264 via CPU, NVENC, VAAPI, QSV, etc.) for most streaming targets.
 
+When the configured hardware encoder's GPU has a free display connector, the container modesets that output, puts Chromium on it, and grabs the scanout (`kmsgrab`) straight into the encoder. That is the same idea as OBS handing the browser's GPU surface to NVENC. A connector already driving another desktop is left alone. Xvfb and WebM capture stay in use when that plane is not available, and when the encoder is a software codec that would have to copy the frame back to RAM.
+
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) (run the streamer only)
@@ -50,7 +52,7 @@ Edit `config.json`. Only two fields are required — everything else uses defaul
 }
 ```
 
-Optional overrides: `width`, `height`, `frameRate`, `clickPlayTarget`, `hideScrollbars`, `embedAsMedia`, `navigation`, `stream`, `ffmpeg`, `puppeteer`. See [Configuration](#configuration).
+Optional overrides: `width`, `height`, `frameRate`, `buffer`, `clickPlayTarget`, `hideScrollbars`, `embedAsMedia`, `navigation`, `stream`, `ffmpeg`, `puppeteer`. See [Configuration](#configuration).
 
 `config.json` is gitignored. Commit changes to `config.example.json` as a template only.
 
@@ -271,6 +273,7 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 | `width`                       | `1280`                                                                                        |
 | `height`                      | `720`                                                                                         |
 | `frameRate`                   | `30`                                                                                          |
+| `buffer.preloadSeconds`       | `3` — seconds of decoded video to buffer before sending (startup, reload, navigate); `0` disables (tab capture only) |
 | `clickPlayTarget`             | _(unset)_ — CSS selector for a play/start button to click after load                          |
 | `hideScrollbars`              | `false` — hide horizontal and vertical scrollbars in the capture                              |
 | `embedAsMedia`                | _(unset)_ — `"audio"` or `"video"` to load a direct stream URL in a media element             |
@@ -383,7 +386,7 @@ FFmpeg logging is quiet by default: the copyright banner is hidden (`-hide_banne
 
 Known encoders get tuning automatically (e.g. `libx264` → `veryfast`, NVENC → `p4+hq` + AQ, VAAPI/QSV → hwupload). Video is normalized with `fps` and `format=yuv420p` before encode. For NVENC, add `-rc cbr` in `extraArgs` when you need a fixed output bitrate (`-b:v` alone is ignored). For lowest latency, override with `-preset p1 -tune ull -zerolatency 1` in `extraArgs`.
 
-VAAPI device path defaults to `/dev/dri/renderD128`; override with `VAAPI_DEVICE` env var. `docker:run` passes `--gpus all` and `--device /dev/dri` for NVIDIA + Intel/AMD encode.
+VAAPI device path defaults to `/dev/dri/renderD128`; override with `VAAPI_DEVICE` env var. `docker:run` passes `--gpus all`, `--device /dev/dri`, and `--cap-add SYS_ADMIN` for NVIDIA + Intel/AMD encode and GPU scanout capture.
 
 Xvfb color depth is fixed at 24-bit in code. `width` and `height` also size the virtual display at container start.
 
@@ -404,7 +407,7 @@ Scripts work with `npm run` or `bun run`. Node is the default Docker runtime.
 | `npm run docker:build`      | Build the Node image (`browser_source-node`, tagged from `VERSION` + `:latest`) |
 | `npm run docker:build:node` | Same as `docker:build` (`Dockerfile.node`)                                      |
 | `npm run docker:build:bun`  | Build the Bun image (`browser_source-bun`, `Dockerfile.bun`)                    |
-| `npm run docker:run`        | Rebuild + run the Node image (`--gpus all`, `--device /dev/dri`, `config.json`) |
+| `npm run docker:run`        | Rebuild + run the Node image (`--gpus all`, `--device /dev/dri`, `SYS_ADMIN`, `config.json`) |
 | `npm run docker:run:bun`    | Rebuild + run the Bun image                                                     |
 
 The container only receives a read-only `config.json` mount. Source, lint rules, and formatter config are baked into the image at build time and are not modified at runtime.
@@ -467,7 +470,8 @@ browser_source/
 │   │   └── styles.css          # Control frontend styling
 │   └── streaming/
 │       ├── ffmpeg.ts         # FFmpeg spawn, pipe, and reconnect
-│       └── ffmpeg-config.ts  # FFmpeg argument builder and codec formats
+│       ├── ffmpeg-config.ts  # Codec allow-list, config schema, encoder profiles
+│       └── ffmpeg-args.ts    # FFmpeg command lines for the capture pipeline
 ├── scripts/
 │   ├── docker-entrypoint.sh  # PulseAudio null sink + Xvfb + app start
 │   └── run-ts.sh             # STREAMER_RUNTIME=node|bun TypeScript launcher
@@ -488,13 +492,20 @@ browser_source/
 - **Base image:** `debian:trixie-slim`
 - **Runtime:** Node.js 24.21.0 + tsx by default (`Dockerfile.node`); optional Bun image (`Dockerfile.bun`). Production deps only. Set `STREAMER_RUNTIME` in the image so `run-ts.sh` does not auto-detect.
 - **Build cache:** Docker BuildKit cache mounts reuse npm/Bun package downloads and Puppeteer’s Chrome download across builds; dependency layers still invalidate when their manifests or lockfiles change.
-- **Display/audio:** Xvfb (virtual display) + PulseAudio null sink (tab audio capture)
+- **Display/audio:** Xvfb (virtual display) + PulseAudio null sink (tab audio capture). A free GPU connector is used instead of Xvfb when the hardware encoder can import that scanout.
 - **Config:** `config.json` mounted at `/app/config.json` via `docker:run`
 - **Host access:** `--add-host=host.docker.internal:host-gateway`
 - **Init process:** `--init` (required — without it the container can hang silently with no app logs)
 - **Shared memory:** `--shm-size=2g`
-- **GPU:** `docker:run` passes `--gpus all` and `--device /dev/dri`; Chromium defaults enable GPU rendering (ANGLE/Vulkan + VAAPI decode); FFmpeg includes NVENC, VAAPI, and QSV encoders (host driver/libs required at runtime). `NVIDIA_DRIVER_CAPABILITIES` includes `graphics` for OpenGL/Vulkan in Chrome.
+- **GPU:** `docker:run` passes `--gpus all`, `--device /dev/dri`, and `--cap-add SYS_ADMIN` (required for `kmsgrab`). Chromium defaults enable GPU rendering (ANGLE/Vulkan + VAAPI decode); FFmpeg includes NVENC, VAAPI, and QSV encoders (host driver/libs required at runtime). `NVIDIA_DRIVER_CAPABILITIES` includes `graphics` for OpenGL/Vulkan in Chrome.
 - **Failures:** FFmpeg or browser errors exit the container (non-zero) instead of hanging
+- **Logs:** With `ffmpeg.stats` enabled (default), the compositor prints encoding progress every `ffmpeg.statsPeriod` seconds (default `5`). That is intentional for long runs but fills Docker’s json-file log quickly when the container runs detached (`-d`) or under Compose. Set `"stats": false` in `ffmpeg` to stop progress lines, or raise `statsPeriod`. To clear logs for a running container without restarting it:
+
+	```bash
+	truncate -s 0 "$(docker inspect --format='{{.LogPath}}' CONTAINER_NAME_OR_ID)"
+	```
+
+	For new containers, cap growth with Docker’s log driver, for example `--log-opt max-size=10m --log-opt max-file=3` on `docker run`, or the equivalent `logging` block in Compose.
 
 ## Troubleshooting
 
@@ -508,6 +519,14 @@ browser_source/
 3. Confirm `outputUrl` uses `host.docker.internal`, not `localhost`.
 4. `docker:run` rebuilds automatically. Check logs for `Output: srt://...` at startup and that FFmpeg does **not** say `to 'undefined'`.
 5. `no sockets to check, this would deadlock` on Ctrl+C before a caller connects is a harmless libsrt shutdown message.
+
+### FFmpeg `speed` sits at `0.999x`
+
+That is a healthy long run, not a stall. `speed` is media time divided by wall time since the compositor started. A fresh start reads a little over `1x` because the sender waits until `buffer.preloadSeconds` (default `3`) of decoded frames are buffered, then that head start becomes a smaller fraction of the run and the number settles near `1x`.
+
+After several hours it often prints `0.999x` while `fps` stays at the configured rate and `bitrate` stays at the target. Each frame takes a fraction longer than its slot, and the sender does not skip ahead, so the gap grows by about two seconds per hour (about ten seconds after four hours). `q=-1.0` on NVENC means the encoder did not report a quantizer.
+
+The page reload (`reloadAfterHours`, default 12) starts that clock over. Forcing the stat to stay at `1.000x` would mean dropping a late frame every few minutes.
 
 ### FFmpeg connection dropped / refused / timeout
 

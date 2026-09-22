@@ -3,7 +3,8 @@
  *
  * Flow:
  *   1. Launch Chromium (headful via Xvfb in Docker)
- *   2. puppeteer-stream captures page audio/video as WebM
+ *   2. puppeteer-stream captures page audio/video as WebM.
+ *      When this process owns a GPU scanout, video is that plane and only audio is WebM.
  *   3. FFmpeg encodes and pushes to outputUrl (SRT, RTMP, file, etc.)
  *   4. If FFmpeg dies (drop, timeout, connection refused), it is respawned
  *      indefinitely, waiting `ffmpeg.retryAfter` seconds between attempts.
@@ -11,7 +12,7 @@
  *
  * Config is read from config.json — see config.example.json.
  */
-import type { Readable } from "node:stream";
+import { PassThrough, type Readable } from "node:stream";
 import type { Server } from "node:http";
 import puppeteer from "puppeteer";
 import { getStream, launch, wss } from "puppeteer-stream";
@@ -32,6 +33,29 @@ import { resolveAdminPassword } from "@/platform/auth";
 import { markPageStarted } from "@/platform/uptime";
 import { startControlServer, stopControlServer } from "@/http/server";
 import { PersistentFFmpegRelay } from "@/streaming/relay";
+import { scanoutProducesFrames, scanoutVideoFilter } from "@/streaming/scanout";
+
+/**
+ * Use the DRM device from the entrypoint when kmsgrab can already read it.
+ * Otherwise video stays on the MediaRecorder WebM path.
+ */
+async function resolveScanoutDevice(config: StreamerConfig): Promise<string | null> {
+	const requested = process.env.GPU_SCANOUT_DEVICE;
+	if (!config.stream.video || !requested) {
+		log("Video capture: tab capture (no GPU framebuffer)");
+		return null;
+	}
+	if (!scanoutVideoFilter(config.ffmpeg.videoCodec, config.width, config.height)) {
+		log(`Video capture: tab capture (${config.ffmpeg.videoCodec} cannot import a GPU framebuffer)`);
+		return null;
+	}
+	if (!(await scanoutProducesFrames(requested))) {
+		log(`Video capture: tab capture (GPU framebuffer ${requested} produced no frames)`);
+		return null;
+	}
+	log(`Video capture: GPU framebuffer ${requested}`);
+	return requested;
+}
 
 /** puppeteer-stream bundles puppeteer-core 24; types must come from `launch()`, not puppeteer 25. */
 type Browser = Awaited<ReturnType<typeof launch>>;
@@ -160,6 +184,7 @@ function watchCapture(stream: Readable): void {
  */
 async function startStreaming(config: StreamerConfig): Promise<void> {
 	try {
+		const scanoutDevice = await resolveScanoutDevice(config);
 		log("Launching browser...");
 
 		// launch() from puppeteer-stream loads the browser extension required for capture.
@@ -169,11 +194,24 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 		const launched = await launch({
 			executablePath,
 			headless: config.puppeteer.headless,
-			args: [...AUTOPLAY_LAUNCH_ARGS, ...config.puppeteer.args],
-			defaultViewport: {
-				width: config.width,
-				height: config.height,
-			},
+			args: [
+				...AUTOPLAY_LAUNCH_ARGS,
+				...(scanoutDevice
+					? [
+							"--kiosk",
+							"--start-fullscreen",
+							"--window-position=0,0",
+							`--window-size=${config.width},${config.height}`,
+						]
+					: []),
+				...config.puppeteer.args,
+			],
+			defaultViewport: scanoutDevice
+				? null
+				: {
+						width: config.width,
+						height: config.height,
+					},
 		});
 		browser = launched;
 
@@ -213,15 +251,19 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 		// A fresh stream is required for every FFmpeg process because a restarted
 		// FFmpeg cannot parse a WebM stream from the middle of the old capture.
 		const createCaptureStream = async (): Promise<Readable> => {
+			if (scanoutDevice && !config.stream.audio) {
+				return new PassThrough();
+			}
 			// getStream() returns a Node readable stream of WebM chunks from the page.
 			// frameSize is milliseconds per packet (inverse of frame rate).
 			// MediaRecorder wants bits/s; config is Mbit/s video and kbit/s audio.
+			const captureVideo = config.stream.video && !scanoutDevice;
 			const stream = await getStream(page, {
 				audio: config.stream.audio,
-				video: config.stream.video,
+				video: captureVideo,
 				frameSize: Math.round(1000 / config.frameRate),
 				// If video is enabled, set the mime type and video bits per second
-				...(config.stream.video
+				...(captureVideo
 					? {
 							mimeType: config.stream.mimeType,
 							videoBitsPerSecond: Math.round(config.stream.videoMbitsPerSecond * 1_000_000),
@@ -303,6 +345,7 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 			isShuttingDown: () => shuttingDown,
 			watchCapture,
 			createCaptureStream,
+			scanoutDevice,
 		});
 		await mediaRelay.start(await createCaptureStream());
 		markPageStarted();

@@ -23,6 +23,12 @@ function browserMimeTypeSchema(field: string) {
 	);
 }
 
+/** `buffer` block — decoded-frame cushion before the compositor sends to `outputUrl`. */
+const bufferSchema = z.object({
+	/** Seconds of raw video to accumulate on startup and after each reload/navigate; `0` disables. */
+	preloadSeconds: z.number().min(0, "buffer.preloadSeconds must be a non-negative number of seconds."),
+});
+
 /** `navigation` block — Puppeteer page.goto / setContent waitUntil and timeout. */
 export const navigationSchema = z.object({
 	timeoutMs: z.number().min(0, "navigation.timeoutMs must be a non-negative number (0 disables the timeout)."),
@@ -78,6 +84,7 @@ export const streamerConfigSchema = z.object({
 	clickPlayTarget: z.string().min(1).optional(),
 	hideScrollbars: z.boolean(),
 	embedAsMedia: z.enum(["audio", "video"]).optional(),
+	buffer: bufferSchema,
 	navigation: navigationSchema,
 	width: z.number().positive(),
 	height: z.number().positive(),
@@ -117,11 +124,12 @@ export function getConfigPath(): string {
 /** Merge user config over DEFAULT_STREAMER_CONFIG and validate the resolved result. */
 export function applyConfigDefaults(parsed: unknown): StreamerConfig {
 	const input = parseStreamerConfigInput(parsed);
-	const { stream, puppeteer, ffmpeg, navigation, control, auth, ...rest } = input;
+	const { stream, puppeteer, ffmpeg, navigation, buffer, control, auth, ...rest } = input;
 
 	const merged = {
 		...DEFAULT_STREAMER_CONFIG,
 		...rest,
+		buffer: { ...DEFAULT_STREAMER_CONFIG.buffer, ...buffer },
 		navigation: { ...DEFAULT_STREAMER_CONFIG.navigation, ...navigation },
 		stream: { ...DEFAULT_STREAMER_CONFIG.stream, ...stream },
 		puppeteer: { ...DEFAULT_STREAMER_CONFIG.puppeteer, ...puppeteer },

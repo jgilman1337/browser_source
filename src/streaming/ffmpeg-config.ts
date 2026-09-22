@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-import type { StreamerConfig } from "@/config";
-
 /** FFmpeg video encoders supported by this app (validated at config load). */
 export const SUPPORTED_VIDEO_CODECS = [
 	// CPU
@@ -96,7 +94,7 @@ export function parseFfmpegConfig(value: unknown): FFmpegConfig {
 	return result.data;
 }
 
-type EncoderProfile = {
+export type EncoderProfile = {
 	/** Flags placed before `-i` (hw device init, VAAPI device path, etc.). */
 	preInputArgs?: string[];
 	/** Video filter chain applied after demux (hwupload for GPU encoders). */
@@ -138,16 +136,6 @@ const OUTPUT_FORMAT_ARGS: Partial<Record<OutputFormat, string[]>> = {
 	mpegts: ["-max_interleave_delta", "0", "-fflags", "+genpts"],
 };
 
-function buildVideoFilter(profile: EncoderProfile, frameRate: number): string {
-	//const base = `fps=${frameRate},format=yuv420p,gradfun=strength=1.2:radius=12`;
-	const base = `fps=${frameRate},format=yuv420p`;
-	if (profile.videoFilter) {
-		return `${base},${profile.videoFilter}`;
-	}
-	// Tab capture VP8/VP9 often has alpha + irregular fps — normalize before encode.
-	return base;
-}
-
 /** Low-latency tuning per video encoder — unknown codecs are rejected at validation. */
 const VIDEO_ENCODER_PROFILES: Record<VideoCodec, EncoderProfile> = {
 	libx264: { args: ["-preset", "veryfast", "-tune", "zerolatency"] },
@@ -176,115 +164,12 @@ const VIDEO_ENCODER_PROFILES: Record<VideoCodec, EncoderProfile> = {
 	vp8_v4l2m2m: V4L2_PROFILE,
 };
 
-/**
- * Build FFmpeg CLI args for WebM stdin → encoded output (SRT, RTMP, file, etc.).
- * WebM VP8/VP9 must be re-encoded; stream copy to MPEG-TS yields audio-only output.
- */
-export function buildFFmpegArgs(config: StreamerConfig): string[] {
-	// Validate the output URL
-	const { ffmpeg, outputUrl, frameRate } = config;
-	if (!outputUrl) {
-		throw new Error("outputUrl is missing — set outputUrl in config.json");
-	}
-
-	// Get the video codec
-	const videoCodec = ffmpeg.videoCodec;
-	const profile = VIDEO_ENCODER_PROFILES[videoCodec];
-	const args: string[] = [];
-
-	// Global logging flags first so they apply to hw-device init too.
-	if (ffmpeg.hideBanner) {
-		args.push("-hide_banner");
-	}
-	args.push("-loglevel", ffmpeg.logLevel);
-	if (ffmpeg.stats) {
-		args.push("-stats", "-stats_period", String(ffmpeg.statsPeriod));
-	} else {
-		args.push("-nostats");
-	}
-
-	// Add the pre-input arguments
-	if (profile.preInputArgs?.length) {
-		args.push(...profile.preInputArgs);
-	}
-
-	// Video encoder + overrides, then audio — keeps `-b:v`/`-rc` on the video encoder.
-	args.push("-i", "pipe:0", "-vf", buildVideoFilter(profile, frameRate));
-	args.push("-c:v", videoCodec, ...profile.args);
-	if (ffmpeg.extraArgs.length) {
-		args.push(...ffmpeg.extraArgs);
-	}
-	args.push("-c:a", ffmpeg.audioCodec);
-
-	// Add the format arguments
-	const formatArgs = OUTPUT_FORMAT_ARGS[ffmpeg.format];
-	if (formatArgs?.length) {
-		args.push(...formatArgs);
-	}
-
-	// Add the output format and output URL
-	args.push("-f", ffmpeg.format, outputUrl);
-	return args;
+/** Tuning for one configured video encoder. */
+export function encoderProfile(codec: VideoCodec): EncoderProfile {
+	return VIDEO_ENCODER_PROFILES[codec];
 }
 
-/** Build the long-lived compositor command used during browser reloads. */
-export function buildPersistentFFmpegArgs(config: StreamerConfig): string[] {
-	const { ffmpeg, outputUrl, frameRate } = config;
-	const profile = VIDEO_ENCODER_PROFILES[ffmpeg.videoCodec];
-	const args: string[] = [];
-
-	if (ffmpeg.hideBanner) {
-		args.push("-hide_banner");
-	}
-	args.push("-loglevel", ffmpeg.logLevel);
-	if (ffmpeg.stats) {
-		args.push("-stats", "-stats_period", String(ffmpeg.statsPeriod));
-	} else {
-		args.push("-nostats");
-	}
-	if (profile.preInputArgs?.length) {
-		args.push(...profile.preInputArgs);
-	}
-
-	const input = (): string[] => [
-		"-fflags",
-		"+genpts+discardcorrupt+nobuffer",
-		"-use_wallclock_as_timestamps",
-		"1",
-		"-probesize",
-		"32",
-		"-analyzeduration",
-		"0",
-		"-thread_queue_size",
-		"512",
-		"-f",
-		"nut",
-		"-i",
-		"pipe:3",
-	];
-
-	args.push(...input());
-	args.push(
-		"-map",
-		"0:v:0",
-		"-vf",
-		buildVideoFilter(profile, frameRate),
-		"-map",
-		"0:a:0?",
-		"-af",
-		"aresample=async=1",
-		"-c:v",
-		ffmpeg.videoCodec,
-		...profile.args,
-	);
-	if (ffmpeg.extraArgs.length) {
-		args.push(...ffmpeg.extraArgs);
-	}
-	args.push("-c:a", ffmpeg.audioCodec);
-	const formatArgs = OUTPUT_FORMAT_ARGS[ffmpeg.format];
-	if (formatArgs?.length) {
-		args.push(...formatArgs);
-	}
-	args.push("-f", ffmpeg.format, outputUrl);
-	return args;
+/** Extra muxer flags for one configured output format. */
+export function muxerArgs(format: OutputFormat): string[] {
+	return OUTPUT_FORMAT_ARGS[format] ?? [];
 }
