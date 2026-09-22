@@ -32,14 +32,20 @@ export class OutputFramePump {
 	private readonly silence: Buffer;
 	private videoOut: Writable | null = null;
 	private audioOut: Writable | null = null;
-	private timer: ReturnType<typeof setInterval> | null = null;
+	private timer: ReturnType<typeof setTimeout> | null = null;
+	private startedAt = 0;
+	private framesSent = 0;
 	private mode: "loading" | "browser" = "loading";
 	private loadingFrame: Buffer | null = null;
-	private loadingPartial = Buffer.alloc(0);
+	private loadingFill = 0;
+	private readonly loadingScratch: Buffer;
 	private browserFrames: Buffer[] = [];
-	private browserPartial = Buffer.alloc(0);
-	private browserAudio = Buffer.alloc(0);
+	private browserFill = 0;
+	private readonly browserScratch: Buffer;
+	private audioChunks: Buffer[] = [];
+	private audioQueued = 0;
 	private lastBrowserFrame: Buffer | null = null;
+	private lastAudio: Buffer | null = null;
 	/** Called when the browser queue drops so the decoder can resume. */
 	public onBelowHighWater: (() => void) | null = null;
 
@@ -53,6 +59,8 @@ export class OutputFramePump {
 		this.audioBytes = pcmBytesPerFrame(frameRate);
 		this.black = blackYuv420p(width, height);
 		this.silence = Buffer.alloc(this.audioBytes);
+		this.loadingScratch = Buffer.allocUnsafe(this.frameBytes);
+		this.browserScratch = Buffer.allocUnsafe(this.frameBytes);
 	}
 
 	/** How many browser-video bytes are waiting to be sent. */
@@ -67,17 +75,19 @@ export class OutputFramePump {
 		if (this.timer) {
 			return;
 		}
-		this.timer = setInterval(() => {
-			this.tick();
-		}, 1000 / this.frameRate);
+		this.startedAt = performance.now();
+		this.framesSent = 0;
+		this.schedule();
 	}
 
 	/** Stop pacing. The compositor process owns closing the pipes. */
 	public stop(): void {
 		if (this.timer) {
-			clearInterval(this.timer);
+			clearTimeout(this.timer);
 			this.timer = null;
 		}
+		this.startedAt = 0;
+		this.framesSent = 0;
 		this.videoOut = null;
 		this.audioOut = null;
 	}
@@ -95,32 +105,80 @@ export class OutputFramePump {
 	/** Drop queued tab frames after a reload. */
 	public clearBrowser(): void {
 		this.browserFrames = [];
-		this.browserPartial = Buffer.alloc(0);
-		this.browserAudio = Buffer.alloc(0);
+		this.browserFill = 0;
+		this.audioChunks = [];
+		this.audioQueued = 0;
 		this.lastBrowserFrame = null;
+		this.lastAudio = null;
 	}
 
 	/** Ingest raw frames from the 5 fps loading generator. */
 	public pushLoading(chunk: Buffer): void {
-		this.loadingPartial = Buffer.concat([this.loadingPartial, chunk]);
-		while (this.loadingPartial.length >= this.frameBytes) {
-			this.loadingFrame = Buffer.from(this.loadingPartial.subarray(0, this.frameBytes));
-			this.loadingPartial = this.loadingPartial.subarray(this.frameBytes);
-		}
+		this.copyFrames(chunk, this.loadingScratch, this.loadingFill, (frame, fill) => {
+			this.loadingFill = fill;
+			if (frame) {
+				this.loadingFrame = frame;
+			}
+		});
 	}
 
 	/** Ingest raw frames from the browser decoder. */
 	public pushBrowserVideo(chunk: Buffer): void {
-		this.browserPartial = Buffer.concat([this.browserPartial, chunk]);
-		while (this.browserPartial.length >= this.frameBytes) {
-			this.browserFrames.push(Buffer.from(this.browserPartial.subarray(0, this.frameBytes)));
-			this.browserPartial = this.browserPartial.subarray(this.frameBytes);
-		}
+		this.copyFrames(chunk, this.browserScratch, this.browserFill, (frame, fill) => {
+			this.browserFill = fill;
+			if (frame) {
+				this.browserFrames.push(frame);
+			}
+		});
 	}
 
 	/** Ingest PCM from the browser decoder. */
 	public pushBrowserAudio(chunk: Buffer): void {
-		this.browserAudio = Buffer.concat([this.browserAudio, chunk]);
+		this.audioChunks.push(chunk);
+		this.audioQueued += chunk.length;
+	}
+
+	/** Stay on the output frame grid. A late tick sends the frames it owes instead of slipping the clock. */
+	private schedule(): void {
+		if (!this.videoOut || !this.audioOut) {
+			return;
+		}
+		const interval = 1000 / this.frameRate;
+		const now = performance.now();
+		const due = this.startedAt + this.framesSent * interval;
+		if (now + 0.5 < due) {
+			this.timer = setTimeout(() => this.schedule(), due - now);
+			return;
+		}
+		let burst = 0;
+		while (this.startedAt + this.framesSent * interval <= now && burst < 2) {
+			this.tick();
+			this.framesSent += 1;
+			burst += 1;
+		}
+		const next = this.startedAt + this.framesSent * interval;
+		this.timer = setTimeout(() => this.schedule(), Math.max(0, next - performance.now()));
+	}
+
+	/** Copy chunk bytes into a frame scratch without reallocating the partial frame. */
+	private copyFrames(
+		chunk: Buffer,
+		scratch: Buffer,
+		fill: number,
+		done: (frame: Buffer | null, fill: number) => void,
+	): void {
+		let offset = 0;
+		while (offset < chunk.length) {
+			const n = Math.min(this.frameBytes - fill, chunk.length - offset);
+			chunk.copy(scratch, fill, offset, offset + n);
+			fill += n;
+			offset += n;
+			if (fill === this.frameBytes) {
+				done(Buffer.from(scratch), 0);
+				fill = 0;
+			}
+		}
+		done(null, fill);
 	}
 
 	/** One output tick: loading picture, or the next cached browser frame. */
@@ -150,13 +208,29 @@ export class OutputFramePump {
 		return this.loadingFrame ?? this.black;
 	}
 
-	/** PCM aligned to this video tick. Loading uses silence. */
+	/** PCM aligned to this video tick. A short gap repeats the last samples instead of inserting silence. */
 	private nextAudio(): Buffer {
-		if (this.mode !== "browser" || this.browserAudio.length < this.audioBytes) {
-			return this.silence;
+		if (this.mode !== "browser" || this.audioQueued < this.audioBytes) {
+			return this.lastAudio ?? this.silence;
 		}
-		const audio = this.browserAudio.subarray(0, this.audioBytes);
-		this.browserAudio = this.browserAudio.subarray(this.audioBytes);
+		const audio = Buffer.allocUnsafe(this.audioBytes);
+		let filled = 0;
+		while (filled < this.audioBytes) {
+			const head = this.audioChunks[0];
+			if (!head) {
+				break;
+			}
+			const n = Math.min(head.length, this.audioBytes - filled);
+			head.copy(audio, filled, 0, n);
+			filled += n;
+			this.audioQueued -= n;
+			if (n === head.length) {
+				this.audioChunks.shift();
+			} else {
+				this.audioChunks[0] = head.subarray(n);
+			}
+		}
+		this.lastAudio = audio;
 		return audio;
 	}
 }

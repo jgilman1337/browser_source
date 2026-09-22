@@ -1,15 +1,12 @@
 /**
  * Process 3 of 3: loading card.
  *
- * Runs for the whole session. Encodes the card with the same video codec and
- * encoder flags as the compositor (NVENC when that is the configured codec),
- * and also writes raw frames so the compositor can send them without a second SRT dial.
+ * Draws the card and writes raw frames. The compositor is the only NVENC session
+ * and is what sends those frames.
  */
 import { spawn, type ChildProcess } from "node:child_process";
 
 import type { StreamerConfig } from "@/config";
-import { encoderProfile } from "@/streaming/ffmpeg-config";
-import { videoEncoderArgs } from "@/streaming/ffmpeg-args";
 
 /** Card rate. The compositor repeats these frames at the output frame rate. */
 export const FALLBACK_FPS = 5;
@@ -71,42 +68,27 @@ function loadingEllipsis(font: string, size: number, dots: number, step: number,
 	return `drawtext=fontfile=${font}:text='Page Loading${".".repeat(dots)}':fontcolor=white:fontsize=${size}:x=(w-text_w)/2:y=(h-text_h)/2:enable='${stepTest}'`;
 }
 
-/** Same `-c:v` and encoder flags as the compositor, plus a raw frame tap on stdout. */
+/** Draw the loading card. The compositor encodes it with the configured video codec. */
 export function buildFallbackArgs(config: StreamerConfig): string[] {
-	const { width, height, ffmpeg } = config;
-	const profile = encoderProfile(ffmpeg.videoCodec);
+	const { width, height } = config;
 	const font = "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf";
 	const titleSize = Math.max(24, Math.round(height / 18));
 	const ellipsis = [1, 2, 3].map((dots, step) => loadingEllipsis(font, titleSize, dots, step, 3)).join(",");
 	const draw = `${ellipsis},format=yuv420p`;
-	const split = profile.videoFilter
-		? `[0:v]${draw}[card];[card]split[raw][forenc];[forenc]${profile.videoFilter}[enc]`
-		: `[0:v]${draw}[card];[card]split[raw][enc]`;
-	const args: string[] = ["-hide_banner", "-loglevel", "warning", "-nostats"];
-	if (profile.preInputArgs?.length) {
-		args.push(...profile.preInputArgs);
-	}
-	args.push(
+	return [
+		"-hide_banner",
+		"-loglevel",
+		"warning",
+		"-nostats",
 		"-re",
 		"-f",
 		"lavfi",
 		"-i",
 		`color=c=black:s=${width}x${height}:r=${FALLBACK_FPS}`,
-		"-filter_complex",
-		split,
-		"-map",
-		"[enc]",
-		...videoEncoderArgs(config),
-		"-f",
-		"null",
-		"-",
-		"-map",
-		"[raw]",
-		"-c:v",
-		"rawvideo",
+		"-vf",
+		draw,
 		"-f",
 		"rawvideo",
 		"pipe:1",
-	);
-	return args;
+	];
 }
