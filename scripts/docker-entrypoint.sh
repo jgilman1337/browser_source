@@ -24,9 +24,13 @@ start_gpu_display() {
 	uevent="/sys/class/drm/${card_name}/device/uevent"
 	slot=$(sed -n 's/^PCI_SLOT_NAME=0000://p' "${uevent}")
 	driver=$(sed -n 's/^DRIVER=//p' "${uevent}")
-	bus=$((10#$(echo "${slot}" | cut -d: -f1)))
-	dev=$((10#$(echo "${slot}" | cut -d: -f2 | cut -d. -f1)))
-	fn=$((10#$(echo "${slot}" | cut -d. -f2)))
+	# PCI_SLOT_NAME uses hex with leading zeros; dash has no bash 10# decimal syntax.
+	bus_hex=$(echo "${slot}" | cut -d: -f1)
+	dev_hex=$(echo "${slot}" | cut -d: -f2 | cut -d. -f1)
+	fn_hex=$(echo "${slot}" | cut -d. -f2)
+	bus=$(printf '%d' "0x${bus_hex}")
+	dev=$(printf '%d' "0x${dev_hex}")
+	fn=$(printf '%d' "0x${fn_hex}")
 	xdriver="modesetting"
 	if [ "${driver}" = "nvidia" ] && find /usr -path '*/drivers/nvidia_drv.so' -print -quit 2>/dev/null | grep -q .; then
 		xdriver="nvidia"
