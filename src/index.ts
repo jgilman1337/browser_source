@@ -226,28 +226,6 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 			await hideScrollbarsOnPage(page);
 		}
 
-		// Navigate to the target URL
-		if (config.embedAsMedia) {
-			log(
-				`Loading ${config.embedAsMedia} stream from ${config.targetUrl} (waitUntil: ${config.navigation.waitUntil}, timeout: ${config.navigation.timeoutMs}ms)...`,
-			);
-			await loadMediaStreamTarget(page, config.targetUrl, config.embedAsMedia, config.navigation);
-		} else {
-			log(
-				`Navigating to ${config.targetUrl} (waitUntil: ${config.navigation.waitUntil}, timeout: ${config.navigation.timeoutMs}ms)...`,
-			);
-			await navigateToTarget(page, config.targetUrl, config.navigation);
-		}
-
-		// If a click play target is configured, click it
-		if (config.clickPlayTarget) {
-			log(`Clicking play target ${config.clickPlayTarget}...`);
-			await clickPlayTarget(page, config.clickPlayTarget, config.navigation);
-		}
-
-		// Kick any existing media that was already on the page when navigation finished
-		await kickExistingMedia(page);
-
 		// A fresh stream is required for every FFmpeg process because a restarted
 		// FFmpeg cannot parse a WebM stream from the middle of the old capture.
 		const createCaptureStream = async (): Promise<Readable> => {
@@ -347,6 +325,29 @@ async function startStreaming(config: StreamerConfig): Promise<void> {
 			createCaptureStream,
 			scanoutDevice,
 		});
+		if (!scanoutDevice) {
+			await mediaRelay.beginWithFallback();
+		}
+
+		if (config.embedAsMedia) {
+			log(
+				`Loading ${config.embedAsMedia} stream from ${config.targetUrl} (waitUntil: ${config.navigation.waitUntil}, timeout: ${config.navigation.timeoutMs}ms)...`,
+			);
+			await loadMediaStreamTarget(page, config.targetUrl, config.embedAsMedia, config.navigation);
+		} else {
+			log(
+				`Navigating to ${config.targetUrl} (waitUntil: ${config.navigation.waitUntil}, timeout: ${config.navigation.timeoutMs}ms)...`,
+			);
+			await navigateToTarget(page, config.targetUrl, config.navigation);
+		}
+
+		if (config.clickPlayTarget) {
+			log(`Clicking play target ${config.clickPlayTarget}...`);
+			await clickPlayTarget(page, config.clickPlayTarget, config.navigation);
+		}
+
+		await kickExistingMedia(page);
+
 		await mediaRelay.start(await createCaptureStream());
 		markPageStarted();
 		scheduleAutomaticReload(config);

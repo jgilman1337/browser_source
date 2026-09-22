@@ -25,7 +25,7 @@ function browserMimeTypeSchema(field: string) {
 
 /** `buffer` block — decoded-frame cushion before the compositor sends to `outputUrl`. */
 const bufferSchema = z.object({
-	/** Seconds of raw video to accumulate on startup and after each reload/navigate; `0` disables. */
+	/** Seconds of raw video to accumulate before the compositor starts (and after output reconnect); `0` disables. */
 	preloadSeconds: z.number().min(0, "buffer.preloadSeconds must be a non-negative number of seconds."),
 });
 

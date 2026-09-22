@@ -20,7 +20,11 @@ function buildVideoFilter(profile: EncoderProfile, frameRate: number): string {
 	return base;
 }
 
-/** Logging flags shared by every FFmpeg process this app spawns. */
+/** Video encoder flags. The compositor and the fallback card both use this list. */
+export function videoEncoderArgs(config: StreamerConfig): string[] {
+	const profile = encoderProfile(config.ffmpeg.videoCodec);
+	return ["-c:v", config.ffmpeg.videoCodec, ...profile.args, ...config.ffmpeg.extraArgs];
+}
 function loggingArgs(config: StreamerConfig): string[] {
 	const { ffmpeg } = config;
 	const args: string[] = [];
@@ -67,35 +71,40 @@ export function buildPersistentFFmpegArgs(config: StreamerConfig): string[] {
 	if (profile.preInputArgs?.length) {
 		args.push(...profile.preInputArgs);
 	}
-	// Read at the capture timestamps. A MediaRecorder clump must not be
-	// restamped to one instant, or fps and the audio resampler drop it.
+	const { width, height } = config;
+	const vf = buildVideoFilter(profile, frameRate);
+	// One paced raw feed. The frame pump swaps loading vs browser without a new SRT dial.
 	args.push(
-		"-re",
 		"-fflags",
-		"+genpts+discardcorrupt",
-		"-probesize",
-		"32",
-		"-analyzeduration",
-		"0",
-		"-thread_queue_size",
-		"16",
+		"+genpts",
 		"-f",
-		"nut",
+		"rawvideo",
+		"-pix_fmt",
+		"yuv420p",
+		"-video_size",
+		`${width}x${height}`,
+		"-framerate",
+		String(frameRate),
 		"-i",
 		"pipe:3",
+		"-f",
+		"s16le",
+		"-ar",
+		"48000",
+		"-ac",
+		"2",
+		"-i",
+		"pipe:4",
 		"-map",
 		"0:v:0",
 		"-vf",
-		buildVideoFilter(profile, frameRate),
+		vf,
 		"-map",
-		"0:a:0?",
+		"1:a:0",
 		"-af",
 		LIVE_AUDIO_FILTER,
 	);
-	args.push("-c:v", ffmpeg.videoCodec, ...profile.args);
-	if (ffmpeg.extraArgs.length) {
-		args.push(...ffmpeg.extraArgs);
-	}
+	args.push(...videoEncoderArgs(config));
 	args.push("-c:a", ffmpeg.audioCodec, ...muxerArgs(ffmpeg.format), "-f", ffmpeg.format, config.outputUrl);
 	return args;
 }

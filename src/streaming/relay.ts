@@ -1,13 +1,20 @@
 /**
- * Persistent FFmpeg relay used to replace browser captures without closing the
- * configured downstream output.
+ * Orchestrates the three FFmpeg processes:
+ *   1. compositor.ts  — NVENC + output sender (stays up)
+ *   2. browser.ts — one browser capture decoder per page (killed before the next page)
+ *   3. fallback.ts    — loading card, same video encoder settings as the compositor
+ *
+ * This file does not build FFmpeg command lines.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { PassThrough, Writable, type Readable } from "node:stream";
+import { PassThrough, type Readable } from "node:stream";
 
 import type { StreamerConfig } from "@/config";
 import { error, log } from "@/platform/logger";
-import { buildPersistentFFmpegArgs, buildScanoutFFmpegArgs } from "@/streaming/ffmpeg-args";
+import { BrowserDecoder } from "@/streaming/browser";
+import { Compositor } from "@/streaming/compositor";
+import { FallbackEncoder } from "@/streaming/fallback";
+import { OutputFramePump } from "@/streaming/frame-pump";
 
 type RelayRuntime = {
 	isShuttingDown: () => boolean;
@@ -17,35 +24,16 @@ type RelayRuntime = {
 	scanoutDevice: string | null;
 };
 
-/** Local mux used between replaceable producers and the persistent compositor. */
-const PRODUCER_NUT_ARGS = [
-	"-c:v",
-	"rawvideo",
-	"-pix_fmt",
-	"yuv420p",
-	"-c:a",
-	"pcm_s16le",
-	"-ar",
-	"48000",
-	"-ac",
-	"2",
-	"-f",
-	"nut",
-	"pipe:1",
-] as const;
-
-/** Owns the downstream FFmpeg process and replaceable local media producers. */
+/** Owns process lifetime. Swap means kill the browser decoder, not the sender. */
 export class PersistentFFmpegRelay {
-	private readonly config: StreamerConfig;
 	private readonly runtime: RelayRuntime;
-	private compositor: ChildProcess | null = null;
-	private browserProducer: ChildProcess | null = null;
-	private fallbackProducer: ChildProcess | null = null;
+	private readonly pump: OutputFramePump;
+	private readonly compositor: Compositor;
+	private readonly browser: BrowserDecoder;
+	private readonly fallback: FallbackEncoder;
 	private browserCapture: Readable | null = null;
-	private compositorInput: Writable | null = null;
+	private scanoutAudio: ChildProcess | null = null;
 	private mediaForwarder: PassThrough;
-	private currentSource: Readable | null = null;
-	private browserReady = false;
 	private pipeline: Promise<void> = Promise.resolve();
 	private reconnecting = false;
 	private reconnectAttempt = 0;
@@ -53,88 +41,119 @@ export class PersistentFFmpegRelay {
 	private outputBufferTimer: ReturnType<typeof setInterval> | null = null;
 	private outputBufferReady: (() => void) | null = null;
 
-	/** Create a persistent relay for one configured streamer. */
-	public constructor(config: StreamerConfig, runtime: RelayRuntime) {
-		this.config = config;
+	/** Create the three-process relay for one configured streamer. */
+	public constructor(
+		private readonly config: StreamerConfig,
+		runtime: RelayRuntime,
+	) {
 		this.runtime = runtime;
-		this.mediaForwarder = createMediaForwarder(
-			config.width,
-			config.height,
-			config.frameRate,
-			config.buffer.preloadSeconds,
+		this.pump = new OutputFramePump(config.width, config.height, config.frameRate);
+		this.browser = new BrowserDecoder(config);
+		this.compositor = new Compositor(
+			config,
+			(line) => this.logFfmpeg("compositor", line),
+			(code) => {
+				this.pump.stop();
+				if (this.runtime.isShuttingDown()) {
+					return;
+				}
+				log(`Persistent FFmpeg compositor exited with code ${code ?? "unknown"}`);
+				this.scheduleReconnect();
+			},
 		);
+		this.fallback = new FallbackEncoder(
+			config,
+			(chunk) => this.pump.pushLoading(chunk),
+			(line) => this.logFfmpeg("fallback", line),
+			() => {
+				if (!this.runtime.isShuttingDown()) {
+					this.fallback.ensure();
+				}
+			},
+		);
+		this.mediaForwarder = new PassThrough();
 	}
 
-	/** Start the compositor and attach the initial browser capture. */
+	/** Put the loading card on the output before navigation. */
+	public async beginWithFallback(): Promise<void> {
+		await this.enqueue(async () => {
+			if (this.runtime.scanoutDevice) {
+				return;
+			}
+			this.showLoadingOnOutput();
+		});
+	}
+
+	/** Decode the first page into the cache, then swap it onto the live output. */
 	public async start(capture: Readable): Promise<void> {
 		await this.enqueue(async () => {
 			if (this.runtime.scanoutDevice) {
-				this.startCompositor();
-				await this.replaceBrowserCaptureLocked(capture);
+				this.showLoadingOnOutput();
+				await this.startScanoutAudio(capture);
 				return;
 			}
-			// Fill the cushion before FFmpeg exists. Its read clock would otherwise
-			// start during the fill and immediately drain the buffer to catch up.
-			await this.replaceBrowserCaptureLocked(capture);
+			this.showLoadingOnOutput();
+			await this.discardBrowserDecoder();
+			await this.startBrowserDecoder(capture);
 			await this.waitForOutputBuffer();
 			if (this.runtime.isShuttingDown()) {
 				return;
 			}
-			this.startCompositor();
+			this.pump.showBrowser();
+			log("Switched from loading card to browser capture");
 		});
 	}
 
-	/** Replace the page capture while keeping the downstream FFmpeg alive. */
+	/** Kill the previous browser decoder, cache the new page, then swap. */
 	public async replaceBrowserCapture(capture: Readable): Promise<void> {
 		await this.enqueue(async () => {
-			const preloadSeconds = this.config.buffer.preloadSeconds;
-			const pauseCompositor = preloadSeconds > 0 && !this.runtime.scanoutDevice && this.compositorInput !== null;
-			if (pauseCompositor) {
-				this.mediaForwarder.unpipe(this.compositorInput!);
-			}
-			await this.replaceBrowserCaptureLocked(capture);
-			if (preloadSeconds > 0 && !this.runtime.scanoutDevice) {
-				await this.waitForOutputBuffer();
-				if (pauseCompositor && this.compositorInput) {
-					this.mediaForwarder.pipe(this.compositorInput, { end: false });
-				}
-			}
-		});
-	}
-
-	/** Show the generated loading still and stop the current browser capture. */
-	public async switchToFallback(): Promise<void> {
-		await this.enqueue(async () => {
-			this.browserReady = false;
-			await this.stopBrowserCapture();
-			if (this.runtime.scanoutDevice && !this.config.stream.audio) {
-				this.stopProcess(this.browserProducer);
-				this.browserProducer = null;
+			if (this.runtime.scanoutDevice) {
+				await this.startScanoutAudio(capture);
 				return;
 			}
-			const producer = this.startFallbackProducer();
-			this.fallbackProducer = producer;
-			this.routeProducer(producer);
-			this.stopProcess(this.browserProducer);
-			this.browserProducer = null;
+			await this.discardBrowserDecoder();
+			this.showLoadingOnOutput();
+			await this.startBrowserDecoder(capture);
+			await this.waitForOutputBuffer();
+			if (this.runtime.isShuttingDown()) {
+				return;
+			}
+			this.pump.showBrowser();
+			log("Switched from loading card to browser capture");
 		});
 	}
 
-	/** Close all relay children while preserving normal shutdown ordering. */
+	/** Drop the page decoder immediately and keep the loading card on the output. */
+	public async switchToFallback(): Promise<void> {
+		await this.enqueue(async () => {
+			await this.stopBrowserCapture();
+			if (this.runtime.scanoutDevice && !this.config.stream.audio) {
+				this.stopScanoutAudio();
+				return;
+			}
+			if (!this.runtime.scanoutDevice) {
+				await this.discardBrowserDecoder();
+				this.showLoadingOnOutput();
+			} else {
+				this.stopScanoutAudio();
+			}
+		});
+	}
+
+	/** Close all three processes. */
 	public async stop(): Promise<void> {
 		this.wakeRetry?.();
 		await this.enqueue(async () => {
-			this.unrouteProducer();
-			this.detachCompositor();
-			this.stopProcess(this.browserProducer);
-			this.stopProcess(this.fallbackProducer);
+			await this.discardBrowserDecoder();
 			await this.stopBrowserCapture();
-			this.browserProducer = null;
-			this.fallbackProducer = null;
+			this.fallback.stop();
+			this.pump.stop();
+			this.compositor.stop();
+			this.stopScanoutAudio();
 		});
 	}
 
-	/** Serialize compositor and producer swaps so reconnect cannot overlap reload. */
+	/** Serialize swaps so reconnect cannot overlap reload. */
 	private enqueue(work: () => Promise<void>): Promise<void> {
 		const run = this.pipeline.then(work, work);
 		this.pipeline = run.then(
@@ -144,44 +163,56 @@ export class PersistentFFmpegRelay {
 		return run;
 	}
 
-	/** Start the long-lived compositor that owns the configured output URL. */
-	private startCompositor(): void {
-		const scanoutDevice = this.runtime.scanoutDevice;
-		const needsAudioPipe = !scanoutDevice || this.config.stream.audio;
-		const process = spawn(
-			"ffmpeg",
-			scanoutDevice ? buildScanoutFFmpegArgs(this.config, scanoutDevice) : buildPersistentFFmpegArgs(this.config),
-			{ stdio: needsAudioPipe ? ["ignore", "pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"] },
-		);
-		const stdio = process.stdio as Array<Writable | Readable | null | undefined>;
-		this.compositor = process;
-		if (needsAudioPipe) {
-			this.compositorInput = stdio[3] as Writable;
-			this.compositorInput.on("error", (pipeError: NodeJS.ErrnoException) => {
-				if (!isExpectedPipeError(pipeError)) {
-					error("Compositor input pipe error", pipeError);
-				}
-			});
-			this.mediaForwarder.pipe(this.compositorInput, { end: false });
+	/** Loading card on the existing sender. Starts the sender if this is the first time. */
+	private showLoadingOnOutput(): void {
+		this.pump.showLoading();
+		this.fallback.ensure();
+		if (!this.compositor.running) {
+			const pipes = this.compositor.ensure(this.runtime.scanoutDevice);
+			if (pipes.video && pipes.audio) {
+				this.pump.start(pipes.video, pipes.audio);
+			} else if (pipes.video) {
+				this.mediaForwarder.pipe(pipes.video, { end: false });
+			}
 		}
-		this.attachLogs(process, "compositor");
-		process.once("error", (err: Error) => {
-			if (process !== this.compositor || this.runtime.isShuttingDown()) {
-				return;
-			}
-			error("FFmpeg compositor process error", err);
+		log("Loading card on output");
+	}
+
+	/** SIGKILL the browser decoder and drop every frame it produced. */
+	private async discardBrowserDecoder(): Promise<void> {
+		this.pump.clearBrowser();
+		await this.browser.destroy();
+		this.pump.clearBrowser();
+	}
+
+	/** Start a new browser decoder. The previous one must already be dead. */
+	private async startBrowserDecoder(capture: Readable): Promise<void> {
+		if (this.runtime.isShuttingDown()) {
+			return;
+		}
+		this.browserCapture = capture;
+		this.runtime.watchCapture(capture);
+		const maxBytes = outputBufferBytes(
+			this.config.width,
+			this.config.height,
+			this.config.frameRate,
+			this.config.buffer.preloadSeconds + 1,
+		);
+		await this.browser.start(capture, {
+			onVideo: (chunk) => {
+				this.pump.pushBrowserVideo(chunk);
+				if (maxBytes > 0 && this.pump.bufferedVideoBytes() >= maxBytes) {
+					this.browser.setVideoPaused(true);
+				}
+			},
+			onAudio: (chunk) => {
+				this.pump.pushBrowserAudio(chunk);
+			},
+			onStderr: (line) => this.logFfmpeg("browser", line),
 		});
-		process.once("close", (code) => {
-			if (this.runtime.isShuttingDown()) {
-				return;
-			}
-			if (this.compositor === process) {
-				this.compositor = null;
-				this.compositorInput = null;
-			}
-			log(`Persistent FFmpeg compositor exited with code ${code ?? "unknown"}`);
-			this.scheduleReconnect();
-		});
+		this.pump.onBelowHighWater = () => {
+			this.browser.setVideoPaused(false);
+		};
 	}
 
 	/** Queue an output reconnect that retries until the destination accepts packets. */
@@ -196,7 +227,7 @@ export class PersistentFFmpegRelay {
 	/** Respawn the compositor forever; sleep between attempts so reload can still run. */
 	private async reconnectLoop(): Promise<void> {
 		try {
-			while (!this.runtime.isShuttingDown() && !this.compositor) {
+			while (!this.runtime.isShuttingDown() && !this.compositor.running) {
 				this.reconnectAttempt += 1;
 				const retryAfter = this.config.ffmpeg.retryAfter;
 				log(`Output disconnected. Reconnecting in ${retryAfter}s (attempt ${this.reconnectAttempt})...`);
@@ -205,32 +236,33 @@ export class PersistentFFmpegRelay {
 					return;
 				}
 				await this.enqueue(async () => {
-					if (this.runtime.isShuttingDown() || this.compositor) {
+					if (this.runtime.isShuttingDown() || this.compositor.running) {
 						return;
 					}
-					this.detachCompositor();
-					await this.stopBrowserCapture();
-					this.stopProcess(this.browserProducer);
-					this.browserProducer = null;
 					try {
-						await this.replaceBrowserCaptureLocked(await this.runtime.createCaptureStream());
+						await this.discardBrowserDecoder();
+						await this.stopBrowserCapture();
+						this.showLoadingOnOutput();
+						await this.startBrowserDecoder(await this.runtime.createCaptureStream());
 						await this.waitForOutputBuffer();
 						if (!this.runtime.isShuttingDown()) {
-							this.startCompositor();
+							this.pump.showBrowser();
+							log("Browser capture restored on output");
 						}
 					} catch (err) {
 						error("Failed to restore browser capture after output disconnect", err);
-						this.detachCompositor();
+						this.compositor.stop();
+						this.pump.stop();
 					}
 				});
-				if (this.compositor) {
+				if (this.compositor.running) {
 					this.reconnectAttempt = 0;
 					log(`Streaming live to ${this.config.outputUrl}...`);
 				}
 			}
 		} finally {
 			this.reconnecting = false;
-			if (!this.runtime.isShuttingDown() && !this.compositor) {
+			if (!this.runtime.isShuttingDown() && !this.compositor.running) {
 				this.scheduleReconnect();
 			}
 		}
@@ -258,22 +290,17 @@ export class PersistentFFmpegRelay {
 		});
 	}
 
-	/** Unblock startup once the output cushion is full and FFmpeg may start. */
+	/** Unblock once the browser cache is full. The loading card stays on the output. */
 	private finishOutputBuffer(): void {
-		this.clearOutputBufferTimer();
-		this.outputBufferReady?.();
-		this.outputBufferReady = null;
-	}
-
-	/** Stop waiting to fill the output buffer. */
-	private clearOutputBufferTimer(): void {
 		if (this.outputBufferTimer) {
 			clearInterval(this.outputBufferTimer);
 			this.outputBufferTimer = null;
 		}
+		this.outputBufferReady?.();
+		this.outputBufferReady = null;
 	}
 
-	/** Resolve when the output buffer has been handed to the compositor. */
+	/** Resolve when the browser frame cache is full. */
 	private waitForOutputBuffer(): Promise<void> {
 		const preloadSeconds = this.config.buffer.preloadSeconds;
 		if (this.runtime.scanoutDevice || preloadSeconds <= 0) {
@@ -281,113 +308,38 @@ export class PersistentFFmpegRelay {
 		}
 		const target = outputBufferBytes(this.config.width, this.config.height, this.config.frameRate, preloadSeconds);
 		const started = Date.now();
-		log(`Filling ${preloadSeconds}s output buffer (${Math.round(target / 1_048_576)} MB) before sending`);
+		const maxWaitMs = (preloadSeconds + 2) * 1000;
+		log(`Filling ${preloadSeconds}s browser cache (${Math.round(target / 1_048_576)} MB) while loading card is on output`);
 		return new Promise<void>((resolve) => {
 			this.outputBufferReady = resolve;
 			this.outputBufferTimer = setInterval(() => {
-				const filled = this.mediaForwarder.readableLength >= target;
+				const filled = this.pump.bufferedVideoBytes() >= target;
 				const waitedMs = Date.now() - started;
-				const gaveUp = waitedMs >= (preloadSeconds + 2) * 1000 && this.mediaForwarder.readableLength > 0;
-				if (!filled && !gaveUp && !this.runtime.isShuttingDown()) {
+				const timedOut = waitedMs >= maxWaitMs;
+				if (!filled && !timedOut && !this.runtime.isShuttingDown()) {
 					return;
 				}
-				if (filled || gaveUp) {
-					log(`Output buffer ready, sending to ${this.config.outputUrl}`);
+				if (filled) {
+					log("Browser cache ready, swapping onto the live output");
+				} else if (timedOut) {
+					log(
+						`Browser cache preload timed out after ${maxWaitMs}ms with ${this.pump.bufferedVideoBytes()} bytes (target ${target}); swapping`,
+					);
 				}
 				this.finishOutputBuffer();
 			}, 50);
 		});
 	}
 
-	/** Drop the current compositor so a replacement can own pipe:3. */
-	private detachCompositor(): void {
-		this.finishOutputBuffer();
-		this.unrouteProducer();
-		if (this.compositorInput) {
-			this.mediaForwarder.unpipe(this.compositorInput);
-		}
-		this.stopProcess(this.compositor);
-		this.compositor = null;
-		this.compositorInput = null;
-		this.mediaForwarder = createMediaForwarder(
-			this.config.width,
-			this.config.height,
-			this.config.frameRate,
-			this.config.buffer.preloadSeconds,
-		);
-	}
-
-	/** Swap in a new page capture while the compositor keeps the output socket. */
-	private async replaceBrowserCaptureLocked(capture: Readable): Promise<void> {
-		if (this.runtime.isShuttingDown()) {
-			return;
-		}
-		this.browserReady = false;
+	/** Decode tab audio when video is the GPU scanout. */
+	private async startScanoutAudio(capture: Readable): Promise<void> {
+		this.stopScanoutAudio();
 		await this.stopBrowserCapture();
-		this.stopProcess(this.browserProducer);
-		if (this.runtime.scanoutDevice && !this.config.stream.audio) {
-			this.browserProducer = null;
-			this.browserReady = true;
-			this.stopProcess(this.fallbackProducer);
-			this.fallbackProducer = null;
+		if (!this.config.stream.audio) {
 			return;
 		}
 		this.browserCapture = capture;
 		this.runtime.watchCapture(capture);
-		const producer = this.startBrowserProducer(capture);
-		this.browserProducer = producer;
-		this.routeProducer(producer);
-		await this.waitForBrowserFrames(producer);
-		this.stopProcess(this.fallbackProducer);
-		this.fallbackProducer = null;
-	}
-
-	/** Start FFmpeg that decodes the browser WebM into one interleaved local stream. */
-	private startBrowserProducer(capture: Readable): ChildProcess {
-		if (this.runtime.scanoutDevice) {
-			return this.startAudioProducer(capture);
-		}
-		const audioInput = this.config.stream.audio
-			? ["-map", "0:v:0", "-map", "0:a:0"]
-			: [
-					"-f",
-					"lavfi",
-					"-i",
-					"anullsrc=channel_layout=stereo:sample_rate=48000",
-					"-map",
-					"0:v:0",
-					"-map",
-					"1:a:0",
-				];
-		const process = spawn(
-			"ffmpeg",
-			[
-				"-hide_banner",
-				"-loglevel",
-				"warning",
-				"-nostats",
-				"-thread_queue_size",
-				"64",
-				"-fflags",
-				"+genpts",
-				"-i",
-				"pipe:0",
-				"-fps_mode",
-				"passthrough",
-				...audioInput,
-				...PRODUCER_NUT_ARGS,
-				"-progress",
-				"pipe:3",
-			],
-			{ stdio: ["pipe", "pipe", "pipe", "pipe"] },
-		);
-		capture.pipe(process.stdin!);
-		this.attachLogs(process, "browser decoder");
-		return process;
-	}
-
-	/** Decode tab audio to PCM. Video is the GPU scanout, not this stream. */
-	private startAudioProducer(capture: Readable): ChildProcess {
 		const process = spawn(
 			"ffmpeg",
 			[
@@ -410,126 +362,29 @@ export class PersistentFFmpegRelay {
 				"-f",
 				"nut",
 				"pipe:1",
-				"-progress",
-				"pipe:3",
 			],
-			{ stdio: ["pipe", "pipe", "pipe", "pipe"] },
+			{ stdio: ["pipe", "pipe", "pipe"] },
 		);
 		capture.pipe(process.stdin!);
-		this.attachLogs(process, "audio decoder");
-		return process;
-	}
-
-	/** Start the FFmpeg-generated black loading still. */
-	private startFallbackProducer(): ChildProcess {
-		if (this.runtime.scanoutDevice) {
-			return this.startSilentAudio();
-		}
-		const { width, height } = this.config;
-		const font = "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf";
-		const title = `drawtext=fontfile=${font}:text='Page Loading...':fontcolor=white:fontsize=${Math.max(24, Math.round(height / 18))}:x=(w-text_w)/2:y=(h-text_h)/2`;
-		const process = spawn(
-			"ffmpeg",
-			[
-				"-hide_banner",
-				"-loglevel",
-				"warning",
-				"-nostats",
-				"-re",
-				"-f",
-				"lavfi",
-				"-i",
-				`color=c=black:s=${width}x${height}:r=1`,
-				"-f",
-				"lavfi",
-				"-i",
-				"anullsrc=channel_layout=stereo:sample_rate=48000",
-				"-filter_complex",
-				`[0:v]${title},format=yuv420p[v]`,
-				"-map",
-				"[v]",
-				"-map",
-				"1:a",
-				...PRODUCER_NUT_ARGS,
-			],
-			{ stdio: ["ignore", "pipe", "pipe"] },
-		);
-		this.attachLogs(process, "fallback generator");
-		return process;
-	}
-
-	/** Keep the scanout compositor's audio input fed while the page is changing. */
-	private startSilentAudio(): ChildProcess {
-		const process = spawn(
-			"ffmpeg",
-			[
-				"-hide_banner",
-				"-loglevel",
-				"warning",
-				"-nostats",
-				"-f",
-				"lavfi",
-				"-i",
-				"anullsrc=channel_layout=stereo:sample_rate=48000",
-				"-c:a",
-				"pcm_s16le",
-				"-f",
-				"nut",
-				"pipe:1",
-			],
-			{ stdio: ["ignore", "pipe", "pipe"] },
-		);
-		this.attachLogs(process, "silent audio");
-		return process;
-	}
-
-	/** Wait until the browser decoder reports its first decoded frame. */
-	private async waitForBrowserFrames(process: ChildProcess): Promise<void> {
-		await new Promise<void>((resolve, reject) => {
-			const timeout = setTimeout(() => reject(new Error("Timed out waiting for browser frames")), 15_000);
-			process.stdio[3]?.on("data", (chunk: Buffer) => {
-				const text = chunk.toString();
-				const scanoutAudio = this.runtime.scanoutDevice !== null;
-				const started = scanoutAudio ? /out_time_us=([1-9]\d*)/.test(text) : text.includes("frame=");
-				if (started) {
-					clearTimeout(timeout);
-					this.browserReady = true;
-					resolve();
-				}
-			});
-			process.once("close", (code) => {
-				clearTimeout(timeout);
-				if (!this.browserReady) {
-					reject(new Error(`Browser decoder exited before producing frames (${code ?? "unknown"})`));
-				}
-			});
-		});
-	}
-
-	/** Point the compositor pipe at one producer, replacing any previous source. */
-	private routeProducer(process: ChildProcess): void {
-		this.unrouteProducer();
-		if (process.stdout) {
-			this.currentSource = process.stdout;
-			process.stdout.pipe(this.mediaForwarder, { end: false });
-		}
-	}
-
-	/** Detach the current producer without closing compositor stdin. */
-	private unrouteProducer(): void {
-		this.currentSource?.unpipe(this.mediaForwarder);
-		this.currentSource = null;
-	}
-
-	/** Log child-process diagnostics without exposing credentials. */
-	private attachLogs(process: ChildProcess, label: string): void {
 		process.stderr?.on("data", (data: Buffer) => {
 			for (const line of data.toString().trimEnd().split("\n")) {
-				if (line && !isNoisyFfmpegLine(line)) {
-					log(`[FFmpeg ${label}] ${line}`);
+				if (line) {
+					this.logFfmpeg("scanout audio", line);
 				}
 			}
 		});
+		if (process.stdout) {
+			process.stdout.pipe(this.mediaForwarder, { end: false });
+		}
+		this.scanoutAudio = process;
+	}
+
+	/** Stop the scanout audio decoder. */
+	private stopScanoutAudio(): void {
+		if (this.scanoutAudio && this.scanoutAudio.exitCode === null) {
+			this.scanoutAudio.kill("SIGKILL");
+		}
+		this.scanoutAudio = null;
 	}
 
 	/** Stop the active puppeteer-stream capture before Chromium starts another one. */
@@ -556,11 +411,12 @@ export class PersistentFFmpegRelay {
 		});
 	}
 
-	/** Terminate one child process if it is still alive. */
-	private stopProcess(process: ChildProcess | null): void {
-		if (process && !process.killed) {
-			process.kill("SIGTERM");
+	/** Log one child-process line without timestamp spam. */
+	private logFfmpeg(label: string, line: string): void {
+		if (line.includes("Non-monotonic DTS") || line.includes("Last message repeated")) {
+			return;
 		}
+		log(`[FFmpeg ${label}] ${line}`);
 	}
 }
 
@@ -568,27 +424,4 @@ export class PersistentFFmpegRelay {
 function outputBufferBytes(width: number, height: number, frameRate: number, preloadSeconds: number): number {
 	const frameBytes = Math.ceil((width * height * 3) / 2);
 	return frameBytes * Math.ceil(frameRate * preloadSeconds);
-}
-
-/** Hold the output cushion. One extra frame so the buffer can fill without stalling the decoder. */
-function createMediaForwarder(width: number, height: number, frameRate: number, preloadSeconds: number): PassThrough {
-	const frameBytes = Math.ceil((width * height * 3) / 2);
-	const cushion = outputBufferBytes(width, height, frameRate, preloadSeconds);
-	const forwarder = new PassThrough({ highWaterMark: Math.max(frameBytes, cushion + frameBytes) });
-	forwarder.on("error", (err: NodeJS.ErrnoException) => {
-		if (!isExpectedPipeError(err)) {
-			error("Media forwarder error", err);
-		}
-	});
-	return forwarder;
-}
-
-/** Drop per-packet timestamp warnings that flood the console after a source swap. */
-function isNoisyFfmpegLine(line: string): boolean {
-	return line.includes("Non-monotonic DTS") || line.includes("Last message repeated");
-}
-
-/** True when a pipe error is the expected result of FFmpeg exiting. */
-function isExpectedPipeError(err: NodeJS.ErrnoException): boolean {
-	return err.code === "EPIPE" || err.code === "ECONNRESET";
 }

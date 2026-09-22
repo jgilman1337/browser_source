@@ -273,7 +273,7 @@ Runtime settings live in **`config.json`**, loaded at startup via the `CONFIG_PA
 | `width`                       | `1280`                                                                                        |
 | `height`                      | `720`                                                                                         |
 | `frameRate`                   | `30`                                                                                          |
-| `buffer.preloadSeconds`       | `3` — seconds of decoded video to buffer before sending (startup, reload, navigate); `0` disables (tab capture only) |
+| `buffer.preloadSeconds`       | `3` — seconds of browser video cached while the 5 fps loading card stays on the live output; then the cache is swapped in without a new SRT connection (`0` disables the wait, tab capture only) |
 | `clickPlayTarget`             | _(unset)_ — CSS selector for a play/start button to click after load                          |
 | `hideScrollbars`              | `false` — hide horizontal and vertical scrollbars in the capture                              |
 | `embedAsMedia`                | _(unset)_ — `"audio"` or `"video"` to load a direct stream URL in a media element             |
@@ -522,7 +522,7 @@ browser_source/
 
 ### FFmpeg `speed` sits at `0.999x`
 
-That is a healthy long run, not a stall. `speed` is media time divided by wall time since the compositor started. A fresh start reads a little over `1x` because the sender waits until `buffer.preloadSeconds` (default `3`) of decoded frames are buffered, then that head start becomes a smaller fraction of the run and the number settles near `1x`.
+That is a healthy long run, not a stall. `speed` is media time divided by wall time since the compositor started. The output starts on the loading card immediately; after the browser cache swaps in, that head start is a small fraction of a long run and the number stays near `1x`.
 
 After several hours it often prints `0.999x` while `fps` stays at the configured rate and `bitrate` stays at the target. Each frame takes a fraction longer than its slot, and the sender does not skip ahead, so the gap grows by about two seconds per hour (about ten seconds after four hours). `q=-1.0` on NVENC means the encoder did not report a quantizer.
 
